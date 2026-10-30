@@ -52,7 +52,7 @@ function LoginPageContent() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f1f2f3] px-4 py-10 text-gray-800">
       <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-9">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-center">
           <Link href="/" className="inline-flex items-center gap-2">
             <span className="text-2xl font-bold tracking-tight text-gray-800">
               VYBE
