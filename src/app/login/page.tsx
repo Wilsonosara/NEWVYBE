@@ -53,20 +53,9 @@ function LoginPageContent() {
       <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-9">
         <div className="flex items-center justify-between gap-3">
           <Link href="/" className="inline-flex items-center gap-2">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-gray-100 text-xl font-bold text-gray-800">
-              P
-            </span>
-
             <span className="text-2xl font-bold tracking-tight text-gray-800">
               VYBE
             </span>
-          </Link>
-
-          <Link
-            href="/register"
-            className="text-sm font-semibold text-gray-700 underline underline-offset-4 hover:text-gray-500"
-          >
-            Create an account
           </Link>
         </div>
 

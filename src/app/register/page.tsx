@@ -75,10 +75,6 @@ export default function RegisterPage() {
     <main className="flex min-h-screen items-center justify-center bg-[#f1f2f3] px-4 py-10 text-gray-800">
       <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-9">
         <Link href="/" className="inline-flex items-center gap-2">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-gray-100 text-xl font-bold text-gray-800">
-            P
-          </span>
-
           <span className="text-2xl font-bold tracking-tight text-gray-800">
             VYBE
           </span>
