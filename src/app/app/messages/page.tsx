@@ -19,6 +19,8 @@ type DirectMessage = {
   recipient_id: string;
   content: string;
   created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
 };
 
 type MessageParts = {
@@ -618,7 +620,9 @@ export default function MessagesPage() {
 
         supabase
           .from("direct_messages")
-          .select("id, sender_id, recipient_id, content, created_at")
+          .select(
+            "id, sender_id, recipient_id, content, created_at, delivered_at, read_at"
+          )
           .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
           .order("created_at", { ascending: true }),
 
@@ -665,6 +669,21 @@ export default function MessagesPage() {
 
       setProfiles(profilesResult.data ?? []);
       setMessages(messagesResult.data ?? []);
+
+      const incomingMessageIds = ((messagesResult.data ?? []) as DirectMessage[])
+        .filter((item) => item.recipient_id === userId && !item.delivered_at)
+        .map((item) => item.id);
+
+      if (incomingMessageIds.length > 0) {
+        const { error: deliveryError } = await supabase.rpc(
+          "mark_direct_messages_delivered",
+          { p_message_ids: incomingMessageIds }
+        );
+
+        if (deliveryError) {
+          console.error("Could not mark messages as delivered:", deliveryError);
+        }
+      }
       setBlockedIds(
         (blockedResult.data ?? []).map(
           (item: { blocked_id: string }) => item.blocked_id
@@ -739,6 +758,15 @@ export default function MessagesPage() {
         if (requestedUser && requestedUser !== userId) {
           setSelectedUserId(requestedUser);
           setShowInbox(false);
+          const { error: readError } = await supabase.rpc(
+            "mark_direct_messages_read",
+            { p_sender_id: requestedUser }
+          );
+
+          if (readError) {
+            console.error("Could not mark messages as read:", readError);
+          }
+
           await markConversationAsRead(userId, requestedUser);
         }
       } catch (err) {
@@ -897,6 +925,15 @@ export default function MessagesPage() {
     setShowInbox(false);
     setError("");
     setMessage("");
+
+    const { error: readError } = await supabase.rpc(
+      "mark_direct_messages_read",
+      { p_sender_id: userId }
+    );
+
+    if (readError) {
+      console.error("Could not mark messages as read:", readError);
+    }
 
     await markConversationAsRead(myId, userId);
   }
@@ -1350,7 +1387,31 @@ export default function MessagesPage() {
                                 }`}
                               >
                                 {formatTime(item.created_at)}
-                                {mine ? ` · ${t("sent")}` : ""}
+                                {mine && (
+                                  <span
+                                    className={`ml-1.5 inline-flex font-semibold ${
+                                      item.read_at
+                                        ? "text-green-600"
+                                        : "text-gray-400"
+                                    }`}
+                                    title={
+                                      item.read_at
+                                        ? "Seen"
+                                        : item.delivered_at
+                                          ? "Delivered"
+                                          : t("sent")
+                                    }
+                                    aria-label={
+                                      item.read_at
+                                        ? "Seen"
+                                        : item.delivered_at
+                                          ? "Delivered"
+                                          : t("sent")
+                                    }
+                                  >
+                                    {item.read_at ? "✓✓" : item.delivered_at ? "✓✓" : "✓"}
+                                  </span>
+                                )}
                               </p>
                             </div>
                           </div>
