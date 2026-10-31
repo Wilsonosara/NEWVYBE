@@ -37,6 +37,7 @@ type ShareProfile = {
 type FeedProfile = {
   id: string;
   username: string | null;
+  display_name: string | null;
   avatar_url: string | null;
 };
 
@@ -664,7 +665,7 @@ export default function AppHome() {
         if (ids.length > 0) {
           const { data, error } = await supabase
             .from("profiles")
-            .select("id, username, avatar_url")
+            .select("id, username, display_name, avatar_url")
             .in("id", ids);
 
           if (error) throw error;
@@ -684,7 +685,7 @@ export default function AppHome() {
         if (usernames.length > 0) {
           const { data, error } = await supabase
             .from("profiles")
-            .select("id, username, avatar_url")
+            .select("id, username, display_name, avatar_url")
             .in("username", usernames);
 
           if (error) throw error;
@@ -1516,9 +1517,6 @@ export default function AppHome() {
             const isSaved = savedPosts.includes(post.id);
             const isSavePending = pendingSavePosts.includes(post.id);
             const postComments = allPostComments[post.id] || [];
-            const profileUrl = `/app/profile?username=${encodeURIComponent(
-              post.username.trim().replace(/^@/, "")
-            )}`;
             const isLikePending = pendingLikePost === post.id;
 
             const postWithOwner = post as typeof post & {
@@ -1538,11 +1536,21 @@ export default function AppHome() {
               .trim()
               .replace(/^@/, "")
               .toLowerCase();
+            const authorProfile =
+              (ownerId ? feedProfilesById[ownerId] : null) ||
+              feedProfilesByUsername[normalizedUsername];
+            const authorName =
+              authorProfile?.display_name?.trim() ||
+              authorProfile?.username?.trim().replace(/^@/, "") ||
+              post.author;
+            const profileUsername =
+              authorProfile?.username?.trim() || post.username;
+            const profileUrl = `/app/profile?username=${encodeURIComponent(
+              profileUsername.replace(/^@/, "")
+            )}`;
 
             const authorAvatar =
-              (ownerId ? feedProfilesById[ownerId]?.avatar_url : null) ||
-              feedProfilesByUsername[normalizedUsername]?.avatar_url ||
-              null;
+              authorProfile?.avatar_url || null;
 
             return (
               <article
@@ -1557,7 +1565,7 @@ export default function AppHome() {
                 <div className="flex min-w-0 items-center gap-3 pb-3">
                   <Link
                     href={profileUrl}
-                    aria-label={`${tr("profileLabel")}: ${post.author}`}
+                    aria-label={`${tr("profileLabel")}: ${authorName}`}
                     className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-base font-bold text-black transition hover:bg-gray-200"
                   >
                     {authorAvatar ? (
@@ -1568,7 +1576,7 @@ export default function AppHome() {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      post.author.charAt(0).toUpperCase()
+                      authorName.charAt(0).toUpperCase()
                     )}
                   </Link>
 
@@ -1577,7 +1585,7 @@ export default function AppHome() {
                       href={profileUrl}
                       className="block truncate text-sm font-bold transition hover:underline"
                     >
-                      {post.author}
+                      {authorName}
                     </Link>
 
                     <p className="mt-0.5 truncate text-xs text-gray-500">

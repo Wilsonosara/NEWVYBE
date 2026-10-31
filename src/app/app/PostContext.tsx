@@ -477,18 +477,19 @@ export function PostProvider({
 
     if (profileError) throw profileError;
 
-    const author =
-      profile?.display_name?.trim() ||
-      user.user_metadata?.name ||
-      user.email?.split("@")[0] ||
-      "VYBE user";
-
     const rawUsername =
       profile?.username?.trim() ||
       user.email?.split("@")[0] ||
       "user";
 
     const username = `@${rawUsername.replace(/^@/, "")}`;
+    const author =
+      profile?.display_name?.trim() ||
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      profile?.username?.trim() ||
+      user.email?.split("@")[0] ||
+      "VYBE user";
 
     const uploadedMedia: UploadedMedia[] = [];
 
@@ -769,18 +770,19 @@ export function PostProvider({
       throw profileError;
     }
 
-    const author =
-      profile?.display_name?.trim() ||
-      user.user_metadata?.name ||
-      user.email?.split("@")[0] ||
-      "VYBE user";
-
     const rawUsername =
       profile?.username?.trim() ||
       user.email?.split("@")[0] ||
       "user";
 
     const username = `@${rawUsername.replace(/^@/, "")}`;
+    const author =
+      profile?.display_name?.trim() ||
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      profile?.username?.trim() ||
+      user.email?.split("@")[0] ||
+      "VYBE user";
 
     const { data: insertedComment, error: insertError } =
       await supabase
