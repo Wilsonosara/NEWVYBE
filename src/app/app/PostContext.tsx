@@ -299,11 +299,13 @@ export function PostProvider({
         if (!active) return;
 
         const grouped: Record<number, string[]> = {};
+        const commentCounts: Record<number, number> = {};
 
         for (const comment of (commentRows ??
           []) as DatabaseComment[]) {
           const postId = Number(comment.post_id);
           const commentTime = formatPostTime(comment.created_at);
+          commentCounts[postId] = (commentCounts[postId] ?? 0) + 1;
 
           if (!grouped[postId]) {
             grouped[postId] = [];
@@ -317,6 +319,16 @@ export function PostProvider({
         }
 
         setPostComments(grouped);
+        setPosts((current) => {
+          const updatedPosts = current.map((post) => ({
+            ...post,
+            comments: commentCounts[post.id] ?? 0,
+          }));
+
+          postsRef.current = updatedPosts;
+
+          return updatedPosts;
+        });
       } catch (error) {
         console.error("Could not load online posts:", error);
 
