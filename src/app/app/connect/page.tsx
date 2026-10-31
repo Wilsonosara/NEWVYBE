@@ -2,27 +2,6 @@
 
 const people = [
   {
-    initial: "D",
-    name: "David Okafor",
-    username: "@davidokafor",
-    interests: "Sports • Social",
-    followers: "2.4k followers",
-  },
-  {
-    initial: "C",
-    name: "Chioma James",
-    username: "@chiomajames",
-    interests: "Learn • Career",
-    followers: "1.8k followers",
-  },
-  {
-    initial: "T",
-    name: "Tunde Bello",
-    username: "@tundebello",
-    interests: "Business • Social",
-    followers: "3.1k followers",
-  },
-  {
     initial: "A",
     name: "Amaka Johnson",
     username: "@amakaj",

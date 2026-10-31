@@ -89,36 +89,6 @@ const BUCKET = "post-media";
 const PROFILE_KEY = "project-one-profile";
 
 const sampleStories: Story[] = [
-  {
-    id: "sample-david",
-    name: "David Okafor",
-    username: "@davidokafor",
-    image:
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500&auto=format&fit=crop",
-    media:
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=900&auto=format&fit=crop",
-    createdAt: Date.now(),
-  },
-  {
-    id: "sample-chioma",
-    name: "Chioma James",
-    username: "@chiomajames",
-    image:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500&auto=format&fit=crop",
-    media:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=900&auto=format&fit=crop",
-    createdAt: Date.now(),
-  },
-  {
-    id: "sample-tunde",
-    name: "Tunde Bello",
-    username: "@tundebello",
-    image:
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=500&auto=format&fit=crop",
-    media:
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=900&auto=format&fit=crop",
-    createdAt: Date.now(),
-  },
 ];
 
 function PlusIcon({ size = 24 }: { size?: number }) {
