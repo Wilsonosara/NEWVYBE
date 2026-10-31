@@ -521,7 +521,9 @@ function ProfilePageContent() {
   }, [requestedProfileId, requestedUsername, username]);
 
   const displayedProfile =
-    requestedUsername && publicProfile ? publicProfile : null;
+    (requestedUsername || requestedProfileId) && publicProfile
+      ? publicProfile
+      : null;
   const displayedName = displayedProfile?.name || name;
   const displayedUsername = displayedProfile?.username || username;
   const displayedBio = displayedProfile?.bio || bio;
@@ -1009,7 +1011,7 @@ function ProfilePageContent() {
     ]
   );
 
-  if (publicProfileLoading && requestedUsername) {
+  if (publicProfileLoading && (requestedUsername || requestedProfileId)) {
     return (
       <main className="mx-auto min-h-screen w-full max-w-2xl bg-white px-4 py-8 text-gray-900">
         <div className="animate-pulse space-y-4">
@@ -1030,7 +1032,11 @@ function ProfilePageContent() {
     );
   }
 
-  if (requestedUsername && publicProfileNotFound && !publicProfile) {
+  if (
+    (requestedUsername || requestedProfileId) &&
+    publicProfileNotFound &&
+    !publicProfile
+  ) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col items-center justify-center bg-white px-5 py-12 text-center text-gray-900">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-gray-500">
