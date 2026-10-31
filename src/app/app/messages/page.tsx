@@ -1175,7 +1175,12 @@ export default function MessagesPage() {
 
                 <div className="min-w-0">
                   <h2 className="truncate text-sm font-bold text-gray-950">
-                    {displayName(selectedProfile)}
+                    <Link
+                      href={`/app/profile?id=${encodeURIComponent(selectedProfile.id)}`}
+                      className="hover:underline"
+                    >
+                      {displayName(selectedProfile)}
+                    </Link>
                   </h2>
                   <p className="mt-0.5 truncate text-xs text-gray-500">
                     {usernameLabel(selectedProfile)}

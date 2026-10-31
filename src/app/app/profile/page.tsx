@@ -140,6 +140,9 @@ function ProfilePageContent() {
   const [requestedUsername, setRequestedUsername] = useState<string | null>(
     null
   );
+  const [requestedProfileId, setRequestedProfileId] = useState<string | null>(
+    null
+  );
   const [publicProfile, setPublicProfile] = useState<ProfileData | null>(null);
   const [publicProfileLoading, setPublicProfileLoading] = useState(true);
   const [publicProfileNotFound, setPublicProfileNotFound] = useState(false);
@@ -158,13 +161,14 @@ function ProfilePageContent() {
 
   useEffect(() => {
     const requested = searchParams.get("username");
+    const requestedId = searchParams.get("id");
 
-    const updateUsername = window.setTimeout(
-      () => setRequestedUsername(requested ? normalizeUsername(requested) : ""),
-      0
-    );
+    const updateProfileRequest = window.setTimeout(() => {
+      setRequestedUsername(requested ? normalizeUsername(requested) : "");
+      setRequestedProfileId(requestedId);
+    }, 0);
 
-    return () => window.clearTimeout(updateUsername);
+    return () => window.clearTimeout(updateProfileRequest);
   }, [searchParams]);
 
   useEffect(() => {
@@ -411,14 +415,15 @@ function ProfilePageContent() {
   }, []);
 
   const isOwnProfile =
-    !requestedUsername ||
+    (!requestedUsername && !requestedProfileId) ||
+    (!!currentUserId && currentUserId === requestedProfileId) ||
     (!!username && normalizeUsername(username) === requestedUsername);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadPublicProfile() {
-      if (!requestedUsername) {
+      if (!requestedUsername && !requestedProfileId) {
         setPublicProfile(null);
         setPublicProfileNotFound(false);
         setPublicProfileLoading(false);
@@ -439,22 +444,37 @@ function ProfilePageContent() {
 
         if (
           user &&
-          username &&
-          normalizeUsername(username) === requestedUsername
+          ((requestedProfileId && user.id === requestedProfileId) ||
+            (username &&
+              normalizeUsername(username) === requestedUsername))
         ) {
           setPublicProfile(null);
           setPublicProfileLoading(false);
           return;
         }
 
-        const escapedUsername = escapeUsernamePattern(requestedUsername);
-        let { data: profile, error } = await supabase
-          .from("profiles")
-          .select("id, username, display_name, bio, avatar_url")
-          .ilike("username", escapedUsername)
-          .maybeSingle();
+        const profileResult = requestedProfileId
+          ? await supabase
+              .from("profiles")
+              .select("id, username, display_name, bio, avatar_url")
+              .eq("id", requestedProfileId)
+              .maybeSingle()
+          : await supabase
+              .from("profiles")
+              .select("id, username, display_name, bio, avatar_url")
+              .ilike(
+                "username",
+                escapeUsernamePattern(requestedUsername || "")
+              )
+              .maybeSingle();
 
-        if (!profile && !error) {
+        let profile = profileResult.data;
+        let error = profileResult.error;
+
+        if (!requestedProfileId && !profile && !error) {
+          const escapedUsername = escapeUsernamePattern(
+            requestedUsername || ""
+          );
           const result = await supabase
             .from("profiles")
             .select("id, username, display_name, bio, avatar_url")
@@ -498,7 +518,7 @@ function ProfilePageContent() {
     return () => {
       cancelled = true;
     };
-  }, [requestedUsername, username]);
+  }, [requestedProfileId, requestedUsername, username]);
 
   const displayedProfile =
     requestedUsername && publicProfile ? publicProfile : null;
