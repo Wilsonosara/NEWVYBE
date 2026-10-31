@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage, type Language } from "../LanguageProvider";
+import { useOnlinePresence } from "../PresenceProvider";
 
 type Profile = {
   id: string;
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  last_seen_at: string | null;
 };
 
 type DirectMessage = {
@@ -66,6 +68,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Open shared post",
     tapViewPost: "Tap to view this post",
     sent: "Sent",
+    online: "Online",
+    lastSeen: "Last seen",
+    justNow: "just now",
+    lastSeenUnavailable: "Last seen unavailable",
     writeMessage: "Write a message...",
     sendMessage: "Send message",
     enterHint: "Press Enter to send · Shift + Enter for a new line",
@@ -123,6 +129,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Ouvrir la publication partagée",
     tapViewPost: "Appuyez pour voir cette publication",
     sent: "Envoyé",
+    online: "En ligne",
+    lastSeen: "Vu pour la dernière fois",
+    justNow: "à l’instant",
+    lastSeenUnavailable: "Dernière présence inconnue",
     writeMessage: "Écrire un message...",
     sendMessage: "Envoyer le message",
     enterHint: "Entrée pour envoyer · Maj + Entrée pour un retour à la ligne",
@@ -180,6 +190,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Abrir publicación compartida",
     tapViewPost: "Toca para ver esta publicación",
     sent: "Enviado",
+    online: "En línea",
+    lastSeen: "Última vez",
+    justNow: "ahora mismo",
+    lastSeenUnavailable: "Última conexión desconocida",
     writeMessage: "Escribe un mensaje...",
     sendMessage: "Enviar mensaje",
     enterHint: "Pulsa Enter para enviar · Shift + Enter para una nueva línea",
@@ -237,6 +251,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Abrir publicação compartilhada",
     tapViewPost: "Toque para ver esta publicação",
     sent: "Enviada",
+    online: "Online",
+    lastSeen: "Visto pela última vez",
+    justNow: "agora mesmo",
+    lastSeenUnavailable: "Última presença indisponível",
     writeMessage: "Escreva uma mensagem...",
     sendMessage: "Enviar mensagem",
     enterHint: "Pressione Enter para enviar · Shift + Enter para uma nova linha",
@@ -294,6 +312,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "فتح المنشور المشترك",
     tapViewPost: "اضغط لعرض هذا المنشور",
     sent: "تم الإرسال",
+    online: "متصل",
+    lastSeen: "آخر ظهور",
+    justNow: "الآن",
+    lastSeenUnavailable: "وقت آخر ظهور غير متاح",
     writeMessage: "اكتب رسالة...",
     sendMessage: "إرسال الرسالة",
     enterHint: "اضغط Enter للإرسال · Shift + Enter لسطر جديد",
@@ -347,6 +369,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Buɗe rubutun da aka raba",
     tapViewPost: "Taɓa don duba wannan rubutu",
     sent: "An aika",
+    online: "Yana kan layi",
+    lastSeen: "An gan shi na ƙarshe",
+    justNow: "yanzu-yanzu",
+    lastSeenUnavailable: "Ba a san lokacin gani na ƙarshe ba",
     writeMessage: "Rubuta saƙo...",
     sendMessage: "Aika saƙo",
     enterHint: "Danna Enter don aikawa · Shift + Enter don sabon layi",
@@ -400,6 +426,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Ṣí ìtẹ̀jáde tí a pín",
     tapViewPost: "Tẹ̀ láti wo ìtẹ̀jáde yìí",
     sent: "Ti fi ránṣẹ́",
+    online: "Lórí ayélujára",
+    lastSeen: "Ìgbà tí a rí i gbẹ̀yìn",
+    justNow: "sẹ́jú yìí",
+    lastSeenUnavailable: "A kò mọ ìgbà tí a rí i gbẹ̀yìn",
     writeMessage: "Kọ ìfiránṣẹ́...",
     sendMessage: "Fi ìfiránṣẹ́ ránṣẹ́",
     enterHint: "Tẹ Enter láti fi ránṣẹ́ · Shift + Enter fún ìlà tuntun",
@@ -453,6 +483,10 @@ const translations: Record<Language, Record<string, string>> = {
     openPost: "Mepee ozi ekekọrịtara",
     tapViewPost: "Pịa ka ị hụ ozi a",
     sent: "Ezipụla",
+    online: "Ọ nọ n'ịntanetị",
+    lastSeen: "Oge ikpeazụ a hụrụ ya",
+    justNow: "ugbu a",
+    lastSeenUnavailable: "Amaghị oge ikpeazụ a hụrụ ya",
     writeMessage: "Dee ozi...",
     sendMessage: "Zipu ozi",
     enterHint: "Pịa Enter ka izipu · Shift + Enter maka ahịrị ọhụrụ",
@@ -580,6 +614,7 @@ export default function MessagesPage() {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const { language } = useLanguage();
+  const { isOnline, isReady: presenceReady } = useOnlinePresence();
 
   const c = translations[language] ?? translations.en;
   const t = (key: string) => c[key] ?? translations.en[key] ?? key;
@@ -596,8 +631,14 @@ export default function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [showInbox, setShowInbox] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const totalUnread = useMemo(
     () => Object.values(unreadByUser).reduce((sum, count) => sum + count, 0),
@@ -614,7 +655,7 @@ export default function MessagesPage() {
       ] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, username, display_name, avatar_url")
+          .select("id, username, display_name, avatar_url, last_seen_at")
           .neq("id", userId)
           .order("display_name", { ascending: true }),
 
@@ -826,9 +867,25 @@ export default function MessagesPage() {
       )
       .subscribe();
 
+    const profilesChannel = supabase
+      .channel(`message-profile-status-${myId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+        },
+        refresh
+      )
+      .subscribe();
+    const refreshTimer = window.setInterval(refresh, 60_000);
+
     return () => {
+      window.clearInterval(refreshTimer);
       void supabase.removeChannel(messagesChannel);
       void supabase.removeChannel(notificationsChannel);
+      void supabase.removeChannel(profilesChannel);
     };
   }, [myId, supabase, loadData]);
 
@@ -918,6 +975,54 @@ export default function MessagesPage() {
       hour: "numeric",
       minute: "2-digit",
     });
+  }
+
+  function presenceLabel(profile: Profile) {
+    if (isOnline(profile.id)) return t("online");
+    if (!profile.last_seen_at) return t("lastSeenUnavailable");
+
+    const ageInSeconds = Math.max(
+      0,
+      Math.floor((now - new Date(profile.last_seen_at).getTime()) / 1000)
+    );
+
+    if (!Number.isFinite(ageInSeconds)) return t("lastSeenUnavailable");
+    if (ageInSeconds < 60) return `${t("lastSeen")} ${t("justNow")}`;
+
+    const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+      ["minute", 60],
+      ["hour", 60 * 60],
+      ["day", 24 * 60 * 60],
+      ["week", 7 * 24 * 60 * 60],
+      ["month", 30 * 24 * 60 * 60],
+      ["year", 365 * 24 * 60 * 60],
+    ];
+    let unit = units[0][0];
+    let divisor = units[0][1];
+
+    for (const [candidateUnit, candidateDivisor] of units) {
+      if (ageInSeconds >= candidateDivisor) {
+        unit = candidateUnit;
+        divisor = candidateDivisor;
+      }
+    }
+
+    const localeByLanguage: Record<Language, string> = {
+      en: "en",
+      fr: "fr-FR",
+      es: "es-ES",
+      pt: "pt-PT",
+      ar: "ar",
+      ha: "ha",
+      yo: "yo",
+      ig: "ig",
+    };
+    const relativeTime = new Intl.RelativeTimeFormat(
+      localeByLanguage[language] ?? "en",
+      { numeric: "auto" }
+    ).format(-Math.floor(ageInSeconds / divisor), unit);
+
+    return `${t("lastSeen")} ${relativeTime}`;
   }
 
   async function openConversation(userId: string) {
@@ -1098,6 +1203,14 @@ export default function MessagesPage() {
                           className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-600"
                         />
                       )}
+
+                      {presenceReady && isOnline(profile.id) && (
+                        <span
+                          aria-label={t("online")}
+                          title={t("online")}
+                          className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500"
+                        />
+                      )}
                     </div>
 
                     <div className="min-w-0 flex-1">
@@ -1136,6 +1249,12 @@ export default function MessagesPage() {
                       >
                         {preview}
                       </p>
+
+                      {presenceReady && (
+                        <p className="mt-1 truncate text-[10px] text-gray-400">
+                          {presenceLabel(profile)}
+                        </p>
+                      )}
 
                       {count > 0 && (
                         <p className="mt-1 text-[10px] text-gray-400">
@@ -1222,6 +1341,17 @@ export default function MessagesPage() {
                   <p className="mt-0.5 truncate text-xs text-gray-500">
                     {usernameLabel(selectedProfile)}
                   </p>
+                  {presenceReady && (
+                    <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-gray-500">
+                      {isOnline(selectedProfile.id) && (
+                        <span
+                          aria-hidden="true"
+                          className="h-1.5 w-1.5 rounded-full bg-green-500"
+                        />
+                      )}
+                      {presenceLabel(selectedProfile)}
+                    </p>
+                  )}
                 </div>
               </header>
 

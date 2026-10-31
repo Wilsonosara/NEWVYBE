@@ -9,6 +9,7 @@ import {
   useLanguage,
 } from "./LanguageProvider";
 import { createClient } from "../../../utils/supabase/client";
+import { OnlinePresenceProvider } from "./PresenceProvider";
 
 const NOTIFICATIONS_KEY = "project-one-notifications";
 
@@ -636,7 +637,9 @@ export default function AppLayout({
 }) {
   return (
     <LanguageProvider>
-      <AppLayoutContent>{children}</AppLayoutContent>
+      <OnlinePresenceProvider>
+        <AppLayoutContent>{children}</AppLayoutContent>
+      </OnlinePresenceProvider>
     </LanguageProvider>
   );
 }
