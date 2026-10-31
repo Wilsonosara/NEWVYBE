@@ -111,11 +111,12 @@ function ProfilePageContent() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [currentUserId, setCurrentUserId] = useState("");
+  const [ownProfileLoading, setOwnProfileLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
 
-  const [name, setName] = useState("Genius");
-  const [username, setUsername] = useState("@genius");
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [bio, setBio] = useState(DEFAULT_BIO);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
@@ -124,8 +125,8 @@ function ProfilePageContent() {
   const [profileError, setProfileError] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
 
-  const [draftName, setDraftName] = useState("Genius");
-  const [draftUsername, setDraftUsername] = useState("@genius");
+  const [draftName, setDraftName] = useState("");
+  const [draftUsername, setDraftUsername] = useState("");
   const [draftBio, setDraftBio] = useState(DEFAULT_BIO);
 
   const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(
@@ -138,10 +139,13 @@ function ProfilePageContent() {
   const [followersCount, setFollowersCount] = useState(0);
 
   const [requestedUsername, setRequestedUsername] = useState<string | null>(
-    null
+    () => {
+      const requested = searchParams.get("username");
+      return requested ? normalizeUsername(requested) : "";
+    }
   );
   const [requestedProfileId, setRequestedProfileId] = useState<string | null>(
-    null
+    () => searchParams.get("id")
   );
   const [publicProfile, setPublicProfile] = useState<ProfileData | null>(null);
   const [publicProfileLoading, setPublicProfileLoading] = useState(true);
@@ -339,10 +343,11 @@ function ProfilePageContent() {
           const nextName =
             profile.display_name ||
             formatNameFromUsername(profile.username || "") ||
-            "Genius";
+            user.email?.split("@")[0] ||
+            "VYBE member";
 
           const nextUsername = formatUsername(
-            profile.username || user.email?.split("@")[0] || "genius"
+            profile.username || user.email?.split("@")[0] || "user"
           );
 
           const nextBio = profile.bio || DEFAULT_BIO;
@@ -377,9 +382,9 @@ function ProfilePageContent() {
             localProfile.name ||
             (typeof metadataName === "string" ? metadataName.trim() : "") ||
             user.email?.split("@")[0] ||
-            "Genius";
+            "VYBE member";
           const nextUsername = formatUsername(
-            localProfile.username || user.email?.split("@")[0] || "genius"
+            localProfile.username || user.email?.split("@")[0] || "user"
           );
           const nextBio = localProfile.bio || DEFAULT_BIO;
           const nextAvatarUrl = localProfile.avatarUrl || null;
@@ -404,6 +409,8 @@ function ProfilePageContent() {
           if (localProfile.bio) setBio(localProfile.bio);
           if (localProfile.avatarUrl) setAvatarUrl(localProfile.avatarUrl);
         }
+      } finally {
+        if (!cancelled) setOwnProfileLoading(false);
       }
     }
 
@@ -1011,7 +1018,10 @@ function ProfilePageContent() {
     ]
   );
 
-  if (publicProfileLoading && (requestedUsername || requestedProfileId)) {
+  if (
+    ownProfileLoading ||
+    (publicProfileLoading && (requestedUsername || requestedProfileId))
+  ) {
     return (
       <main className="mx-auto min-h-screen w-full max-w-2xl bg-white px-4 py-8 text-gray-900">
         <div className="animate-pulse space-y-4">
