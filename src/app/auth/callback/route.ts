@@ -1,6 +1,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../../../utils/supabase/server";
+import { ensureProfileForUser } from "../../../../utils/supabase/ensure-profile";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -19,6 +20,18 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        try {
+          await ensureProfileForUser(supabase, user);
+        } catch (profileError) {
+          console.error("Unable to create account profile:", profileError);
+        }
+      }
+
       return NextResponse.redirect(new URL(next, requestUrl.origin));
     }
   }

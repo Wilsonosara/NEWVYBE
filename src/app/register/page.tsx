@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../../utils/supabase/client";
+import { ensureProfileForUser } from "../../../utils/supabase/ensure-profile";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -56,6 +57,14 @@ export default function RegisterPage() {
       }
 
       if (data.session) {
+        if (data.user) {
+          try {
+            await ensureProfileForUser(supabase, data.user);
+          } catch (profileError) {
+            console.error("Unable to create account profile:", profileError);
+          }
+        }
+
         router.replace("/app");
         router.refresh();
         return;

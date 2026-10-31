@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../../../../utils/supabase/client";
+import { ensureProfileForUser } from "../../../../utils/supabase/ensure-profile";
 import { usePosts } from "../PostContext";
 import MediaDisplay from "../MediaDisplay";
 
@@ -304,7 +305,7 @@ function ProfilePageContent() {
 
         setCurrentUserId(user.id);
 
-        const { data: profile, error: profileLoadError } = await supabase
+        const { data: loadedProfile, error: profileLoadError } = await supabase
           .from("profiles")
           .select("id, username, display_name, bio, avatar_url")
           .eq("id", user.id)
@@ -314,6 +315,16 @@ function ProfilePageContent() {
 
         if (profileLoadError) {
           console.error("Unable to load profile:", profileLoadError);
+        }
+
+        let profile = loadedProfile;
+
+        if (!profile && !profileLoadError) {
+          try {
+            profile = await ensureProfileForUser(supabase, user);
+          } catch (profileCreateError) {
+            console.error("Unable to create missing profile:", profileCreateError);
+          }
         }
 
         if (profile) {
@@ -353,7 +364,12 @@ function ProfilePageContent() {
             // Supabase remains the primary source of truth.
           }
         } else {
-          const nextName = localProfile.name || "Genius";
+          const metadataName = user.user_metadata?.full_name;
+          const nextName =
+            localProfile.name ||
+            (typeof metadataName === "string" ? metadataName.trim() : "") ||
+            user.email?.split("@")[0] ||
+            "Genius";
           const nextUsername = formatUsername(
             localProfile.username || user.email?.split("@")[0] || "genius"
           );
