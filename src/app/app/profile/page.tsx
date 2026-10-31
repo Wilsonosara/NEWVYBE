@@ -56,6 +56,10 @@ function normalizeUsername(value: string) {
   return value.trim().replace(/^@/, "").toLowerCase();
 }
 
+function escapeUsernamePattern(value: string) {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 function formatNameFromUsername(value: string) {
   const cleaned = value.trim().replace(/^@/, "");
 
@@ -443,11 +447,23 @@ function ProfilePageContent() {
           return;
         }
 
-        const { data: profile, error } = await supabase
+        const escapedUsername = escapeUsernamePattern(requestedUsername);
+        let { data: profile, error } = await supabase
           .from("profiles")
           .select("id, username, display_name, bio, avatar_url")
-          .ilike("username", requestedUsername)
+          .ilike("username", escapedUsername)
           .maybeSingle();
+
+        if (!profile && !error) {
+          const result = await supabase
+            .from("profiles")
+            .select("id, username, display_name, bio, avatar_url")
+            .ilike("username", `@${escapedUsername}`)
+            .maybeSingle();
+
+          profile = result.data;
+          error = result.error;
+        }
 
         if (cancelled) return;
 
