@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "../../../utils/supabase/client";
 import { getMedia } from "../lib/mediaStorage";
 
@@ -10,16 +10,28 @@ type MediaDisplayProps = {
   mediaId?: string;
   mediaType?: "image" | "video";
   mediaName?: string;
+  onNavigate?: (direction: "next" | "previous") => void;
 };
 
 export default function MediaDisplay({
   mediaId,
   mediaType,
   mediaName,
+  onNavigate,
 }: MediaDisplayProps) {
   const [mediaUrl, setMediaUrl] = useState("");
   const [failed, setFailed] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const touchStartYRef = useRef<number | null>(null);
+  const navigationTriggeredRef = useRef(false);
+
+  const navigateToPost = useCallback((direction: "next" | "previous") => {
+    if (!onNavigate) return;
+    if (navigationTriggeredRef.current) return;
+    navigationTriggeredRef.current = true;
+    setIsFullscreen(false);
+    onNavigate(direction);
+  }, [onNavigate]);
 
   useEffect(() => {
     let active = true;
@@ -102,6 +114,7 @@ export default function MediaDisplay({
 
   useEffect(() => {
     if (!isFullscreen) return;
+    navigationTriggeredRef.current = false;
 
     const previousOverflow = document.body.style.overflow;
 
@@ -110,6 +123,12 @@ export default function MediaDisplay({
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setIsFullscreen(false);
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        navigateToPost("next");
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        navigateToPost("previous");
       }
     }
 
@@ -119,7 +138,7 @@ export default function MediaDisplay({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, navigateToPost]);
 
   if (!mediaId || !mediaType) {
     return null;
@@ -177,8 +196,26 @@ export default function MediaDisplay({
           className="fixed inset-0 z-[9999] flex h-[100dvh] w-screen items-center justify-center bg-black"
           role="dialog"
           aria-modal="true"
-          aria-label="Full-screen media viewer"
+          aria-label="Full-screen media viewer. Scroll or swipe to move between posts."
           onClick={() => setIsFullscreen(false)}
+          onWheel={(event) => {
+            if (Math.abs(event.deltaY) < 30 || !onNavigate) return;
+            event.preventDefault();
+            navigateToPost(event.deltaY > 0 ? "next" : "previous");
+          }}
+          onTouchStart={(event) => {
+            touchStartYRef.current = event.touches[0]?.clientY ?? null;
+          }}
+          onTouchEnd={(event) => {
+            const startY = touchStartYRef.current;
+            const endY = event.changedTouches[0]?.clientY;
+            touchStartYRef.current = null;
+
+            if (startY === null || endY === undefined || !onNavigate) return;
+            const distance = startY - endY;
+            if (Math.abs(distance) < 55) return;
+            navigateToPost(distance > 0 ? "next" : "previous");
+          }}
         >
           <button
             type="button"

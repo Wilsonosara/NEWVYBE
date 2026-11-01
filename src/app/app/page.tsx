@@ -1649,7 +1649,7 @@ export default function AppHome() {
             </div>
           )}
 
-          {posts.map((post) => {
+          {posts.map((post, postIndex) => {
             const isLiked = likedPosts.includes(post.id);
             const isDisliked = dislikedPosts.includes(post.id);
             const postReactionCounts = reactionCounts[post.id] ?? { likes: 0, dislikes: 0 };
@@ -1805,6 +1805,18 @@ export default function AppHome() {
                   mediaId={post.mediaId}
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
+                  onNavigate={(direction) => {
+                    const targetIndex =
+                      postIndex + (direction === "next" ? 1 : -1);
+                    const targetPost = posts[targetIndex];
+                    if (!targetPost) return;
+
+                    window.setTimeout(() => {
+                      document
+                        .getElementById(`post-${targetPost.id}`)
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }, 100);
+                  }}
                 />
 
                 {reactionStatus?.postId === post.id && (
