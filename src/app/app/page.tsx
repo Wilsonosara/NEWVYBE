@@ -1087,22 +1087,45 @@ export default function AppHome() {
         if (event.data.size > 0) recordingChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(recordingChunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
-        recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-        recordingStreamRef.current = null;
-        mediaRecorderRef.current = null;
-        setRecordingCommentPostId(null);
+        try {
+          const blob = new Blob(recordingChunksRef.current, {
+            type: recorder.mimeType || "audio/webm",
+          });
 
-        if (blob.size > 0) {
+          if (blob.size === 0) {
+            setCommentError("No audio was captured. Please record again.");
+            return;
+          }
+
           const extension = blob.type.includes("mp4") ? "m4a" : "webm";
           setVoiceCommentFile(
             new File([blob], `voice-comment.${extension}`, { type: blob.type })
           );
           setVoiceCommentUrl(URL.createObjectURL(blob));
           setVoiceCommentPostId(postId);
+        } catch (error) {
+          console.error("Could not finish voice recording:", error);
+          setCommentError(
+            error instanceof Error
+              ? error.message
+              : "Could not finish the recording. Please try again."
+          );
+        } finally {
+          recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+          recordingStreamRef.current = null;
+          mediaRecorderRef.current = null;
+          setRecordingCommentPostId(null);
         }
+      };
+      recorder.onerror = (event) => {
+        const message =
+          event instanceof ErrorEvent && event.message
+            ? event.message
+            : "The browser could not record audio. Please try again.";
+        setCommentError(message);
+        recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+        setRecordingCommentPostId(null);
       };
 
       mediaRecorderRef.current = recorder;
