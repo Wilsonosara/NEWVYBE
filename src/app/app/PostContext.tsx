@@ -31,9 +31,11 @@ type PostContextType = {
     comment: string,
     audioFile?: File
   ) => Promise<void>;
+  deleteComment: (postId: number, commentId: number) => Promise<void>;
 };
 
 export type PostComment = {
+  id: number;
   userId: string | null;
   author: string;
   username: string;
@@ -420,6 +422,7 @@ export function PostProvider({
           }
 
           grouped[postId].push({
+            id: comment.id,
             userId: comment.user_id,
             author:
               profile?.display_name?.trim() ||
@@ -947,7 +950,7 @@ export function PostProvider({
           username,
           content: storedContent,
         })
-        .select("created_at")
+        .select("id, created_at")
         .single();
 
     if (insertError) {
@@ -980,6 +983,7 @@ export function PostProvider({
       [postId]: [
         ...(current[postId] || []),
         {
+          id: insertedComment.id,
           userId: user.id,
           author,
           username,
@@ -1004,6 +1008,81 @@ export function PostProvider({
     });
   }
 
+  async function deleteComment(postId: number, commentId: number) {
+    const supabase = createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError) throw authError;
+    if (!user) throw new Error("Please log in before deleting a comment.");
+
+    const { data: comment, error: lookupError } = await supabase
+      .from("post_comments")
+      .select("id, post_id, user_id, content")
+      .eq("id", commentId)
+      .eq("post_id", postId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (lookupError) throw lookupError;
+    if (!comment) throw new Error("You can only delete your own comments.");
+
+    const { data: deletedRows, error: deleteError } = await supabase
+      .from("post_comments")
+      .delete()
+      .eq("id", commentId)
+      .eq("post_id", postId)
+      .eq("user_id", user.id)
+      .select("id");
+
+    if (deleteError) throw deleteError;
+    if (!deletedRows?.length) {
+      throw new Error("The comment was not deleted. Check your database permissions.");
+    }
+
+    const parsedComment = parseVoiceComment(comment.content);
+    if (parsedComment.storagePath) {
+      const { error: storageError } = await supabase.storage
+        .from("post-media")
+        .remove([parsedComment.storagePath]);
+      if (storageError) {
+        console.error("Could not remove comment voice recording:", storageError);
+      }
+    }
+
+    setPostComments((current) => ({
+      ...current,
+      [postId]: (current[postId] ?? []).filter(
+        (item) => item.id !== commentId
+      ),
+    }));
+
+    const { count, error: countError } = await supabase
+      .from("post_comments")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", postId);
+
+    if (countError) {
+      console.error("Could not refresh comment count:", countError);
+    }
+
+    setPosts((current) => {
+      const updatedPosts = current.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              comments:
+                count ?? Math.max(0, post.comments - 1),
+            }
+          : post
+      );
+      postsRef.current = updatedPosts;
+      return updatedPosts;
+    });
+  }
+
   if (!isLoaded) {
     return (
       <div
@@ -1023,6 +1102,7 @@ export function PostProvider({
         likePost,
         unlikePost,
         addComment,
+        deleteComment,
       }}
     >
       {children}

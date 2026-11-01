@@ -582,6 +582,7 @@ export default function AppHome() {
     postComments: allPostComments,
     addComment,
     deletePost,
+    deleteComment,
   } = usePosts();
 
   const [likedPosts, setLikedPosts] = useState<number[]>([]);
@@ -617,6 +618,7 @@ export default function AppHome() {
   const [highlightedPost, setHighlightedPost] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [deletingPost, setDeletingPost] = useState<number | null>(null);
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
 
   // Profile avatars are loaded from Supabase for every author in the feed.
   const [feedProfilesById, setFeedProfilesById] = useState<
@@ -1175,6 +1177,23 @@ export default function AppHome() {
       setCommentError(
         error instanceof Error ? error.message : "Could not add your comment."
       );
+    }
+  };
+
+  const handleDeleteComment = async (postId: number, commentId: number) => {
+    if (deletingCommentId !== null) return;
+    if (!window.confirm("Delete your comment? This cannot be undone.")) return;
+
+    setDeletingCommentId(commentId);
+    setCommentError("");
+    try {
+      await deleteComment(postId, commentId);
+    } catch (error) {
+      setCommentError(
+        error instanceof Error ? error.message : "Could not delete your comment."
+      );
+    } finally {
+      setDeletingCommentId(null);
     }
   };
 
@@ -1939,6 +1958,20 @@ export default function AppHome() {
                           <span className="break-words text-gray-700">
                             {comment.content}
                           </span>
+                          {comment.userId === currentUserId && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleDeleteComment(post.id, comment.id)
+                              }
+                              disabled={deletingCommentId !== null}
+                              className="ml-2 text-xs text-gray-500 hover:text-black hover:underline disabled:opacity-50"
+                            >
+                              {deletingCommentId === comment.id
+                                ? "Deleting…"
+                                : "Delete"}
+                            </button>
+                          )}
                           {comment.audioUrl && (
                             <div className="mt-2 max-w-full">
                               <p className="mb-1 text-xs font-medium text-gray-500">
