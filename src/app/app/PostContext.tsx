@@ -26,7 +26,11 @@ type PostContextType = {
   deletePost: (postId: number) => Promise<void>;
   likePost: (postId: number) => Promise<void>;
   unlikePost: (postId: number) => Promise<void>;
-  addComment: (postId: number, comment: string) => Promise<void>;
+  addComment: (
+    postId: number,
+    comment: string,
+    audioFile?: File
+  ) => Promise<void>;
 };
 
 export type PostComment = {
@@ -34,6 +38,7 @@ export type PostComment = {
   author: string;
   username: string;
   content: string;
+  audioUrl?: string;
 };
 
 type DatabasePost = {
@@ -84,6 +89,25 @@ type UploadedMedia = {
 };
 
 const PostContext = createContext<PostContextType | null>(null);
+const VOICE_COMMENT_PREFIX = "__VYBE_AUDIO__:";
+
+function parseVoiceComment(content: string, supabase: ReturnType<typeof createClient>) {
+  if (!content.startsWith(VOICE_COMMENT_PREFIX)) {
+    return { content, audioUrl: undefined };
+  }
+
+  const lineBreak = content.indexOf("\n");
+  const storagePath = content
+    .slice(VOICE_COMMENT_PREFIX.length, lineBreak < 0 ? undefined : lineBreak)
+    .trim();
+  const text = lineBreak < 0 ? "" : content.slice(lineBreak + 1).trim();
+
+  if (!storagePath) return { content: text, audioUrl: undefined };
+
+  const { data } = supabase.storage.from("post-media").getPublicUrl(storagePath);
+
+  return { content: text, audioUrl: data.publicUrl };
+}
 
 function formatPostTime(dateString: string) {
   const date = new Date(dateString);
@@ -349,6 +373,7 @@ export function PostProvider({
             ? commentProfiles.get(comment.user_id)
             : undefined;
           const profileUsername = profile?.username?.trim();
+          const parsedContent = parseVoiceComment(comment.content, supabase);
           commentCounts[postId] = (commentCounts[postId] ?? 0) + 1;
 
           if (!grouped[postId]) {
@@ -367,8 +392,9 @@ export function PostProvider({
               ? `@${profileUsername.replace(/^@/, "")}`
               : comment.username?.trim() || "",
             content: commentTime
-              ? `${comment.content} · ${commentTime}`
-              : comment.content,
+              ? `${parsedContent.content}${parsedContent.content ? " · " : ""}${commentTime}`
+              : parsedContent.content,
+            audioUrl: parsedContent.audioUrl,
           });
         }
 
@@ -810,10 +836,10 @@ export function PostProvider({
     window.dispatchEvent(new Event("project-one-likes-updated"));
   }
 
-  async function addComment(postId: number, comment: string) {
+  async function addComment(postId: number, comment: string, audioFile?: File) {
     const cleanComment = comment.trim();
 
-    if (!cleanComment) return;
+    if (!cleanComment && !audioFile) return;
 
     const supabase = createClient();
 
@@ -850,6 +876,26 @@ export function PostProvider({
       user.email?.split("@")[0] ||
       "VYBE user";
 
+    let audioPath: string | undefined;
+
+    if (audioFile) {
+      const extension = audioFile.type.includes("mp4") ? "m4a" : "webm";
+      audioPath = `${user.id}/comments/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("post-media")
+        .upload(audioPath, audioFile, {
+          upsert: false,
+          contentType: audioFile.type || "audio/webm",
+        });
+
+      if (uploadError) throw uploadError;
+    }
+
+    const storedContent = audioPath
+      ? `${VOICE_COMMENT_PREFIX}${audioPath}\n${cleanComment}`
+      : cleanComment;
+
     const { data: insertedComment, error: insertError } =
       await supabase
         .from("post_comments")
@@ -858,12 +904,15 @@ export function PostProvider({
           user_id: user.id,
           author,
           username,
-          content: cleanComment,
+          content: storedContent,
         })
         .select("created_at")
         .single();
 
     if (insertError) {
+      if (audioPath) {
+        await supabase.storage.from("post-media").remove([audioPath]);
+      }
       console.error("Could not add comment:", insertError);
       throw insertError;
     }
@@ -881,6 +930,9 @@ export function PostProvider({
     const commentTime = insertedComment?.created_at
       ? formatPostTime(insertedComment.created_at)
       : "Just now";
+    const audioUrl = audioPath
+      ? supabase.storage.from("post-media").getPublicUrl(audioPath).data.publicUrl
+      : undefined;
 
     setPostComments((current) => ({
       ...current,
@@ -891,8 +943,9 @@ export function PostProvider({
           author,
           username,
           content: commentTime
-            ? `${cleanComment} · ${commentTime}`
+            ? `${cleanComment}${cleanComment ? " · " : ""}${commentTime}`
             : cleanComment,
+          audioUrl,
         },
       ],
     }));

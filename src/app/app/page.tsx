@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 import { usePosts } from "./PostContext";
@@ -596,6 +596,14 @@ export default function AppHome() {
   const [saveStatus, setSaveStatus] = useState("");
   const [openComments, setOpenComments] = useState<number | null>(null);
   const [commentText, setCommentText] = useState("");
+  const [recordingCommentPostId, setRecordingCommentPostId] = useState<number | null>(null);
+  const [voiceCommentPostId, setVoiceCommentPostId] = useState<number | null>(null);
+  const [voiceCommentFile, setVoiceCommentFile] = useState<File | null>(null);
+  const [voiceCommentUrl, setVoiceCommentUrl] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
   const [sharedPost, setSharedPost] = useState<number | null>(null);
 
   const [shareDialogPost, setShareDialogPost] = useState<number | null>(null);
@@ -1049,13 +1057,102 @@ export default function AppHome() {
     }
   };
 
-  const submitComment = (postId: number) => {
-    const cleanComment = commentText.trim();
-    if (!cleanComment) return;
+  const startVoiceComment = async (postId: number) => {
+    setCommentError("");
 
-    addComment(postId, cleanComment);
-    createSimulatedNotification("comment", postId, cleanComment);
-    setCommentText("");
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setCommentError("Voice recording is not supported in this browser.");
+      return;
+    }
+
+    try {
+      if (voiceCommentUrl) URL.revokeObjectURL(voiceCommentUrl);
+      setVoiceCommentFile(null);
+      setVoiceCommentUrl(null);
+      setVoiceCommentPostId(null);
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStreamRef.current = stream;
+      recordingChunksRef.current = [];
+
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(
+        (type) => MediaRecorder.isTypeSupported(type)
+      );
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setRecordingCommentPostId(null);
+
+        if (blob.size > 0) {
+          const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+          setVoiceCommentFile(
+            new File([blob], `voice-comment.${extension}`, { type: blob.type })
+          );
+          setVoiceCommentUrl(URL.createObjectURL(blob));
+          setVoiceCommentPostId(postId);
+        }
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecordingCommentPostId(postId);
+    } catch (error) {
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+      setRecordingCommentPostId(null);
+      setCommentError(
+        error instanceof Error
+          ? error.message
+          : "Could not access the microphone. Check browser permissions and try again."
+      );
+    }
+  };
+
+  const stopVoiceComment = () => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const clearVoiceComment = () => {
+    if (voiceCommentUrl) URL.revokeObjectURL(voiceCommentUrl);
+    setVoiceCommentUrl(null);
+    setVoiceCommentFile(null);
+    setVoiceCommentPostId(null);
+  };
+
+  const submitComment = async (postId: number) => {
+    const cleanComment = commentText.trim();
+    const audioFile = voiceCommentPostId === postId ? voiceCommentFile : null;
+    if (!cleanComment && !audioFile) return;
+
+    setCommentError("");
+    try {
+      await addComment(postId, cleanComment, audioFile ?? undefined);
+      createSimulatedNotification(
+        "comment",
+        postId,
+        cleanComment || "Voice comment"
+      );
+      setCommentText("");
+      clearVoiceComment();
+    } catch (error) {
+      setCommentError(
+        error instanceof Error ? error.message : "Could not add your comment."
+      );
+    }
   };
 
   const toggleSave = async (postId: number) => {
@@ -1819,6 +1916,15 @@ export default function AppHome() {
                           <span className="break-words text-gray-700">
                             {comment.content}
                           </span>
+                          {comment.audioUrl && (
+                            <audio
+                              controls
+                              preload="none"
+                              src={comment.audioUrl}
+                              className="mt-2 block h-10 max-w-full"
+                              aria-label={`Voice comment by ${comment.author}`}
+                            />
+                          )}
                         </div>
                       ))}
 
@@ -1829,11 +1935,42 @@ export default function AppHome() {
                       )}
                     </div>
 
+                    {recordingCommentPostId === post.id && (
+                      <p className="mt-3 text-xs text-gray-500" role="status">
+                        Recording voice comment… Tap the microphone to stop.
+                      </p>
+                    )}
+
+                    {voiceCommentPostId === post.id && voiceCommentUrl && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <audio
+                          controls
+                          src={voiceCommentUrl}
+                          className="h-10 min-w-0 flex-1"
+                          aria-label="Preview voice comment"
+                        />
+                        <button
+                          type="button"
+                          onClick={clearVoiceComment}
+                          className="px-2 py-2 text-sm text-gray-600 hover:text-black"
+                          aria-label="Remove voice recording"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+
+                    {commentError && (
+                      <p className="mt-2 text-xs text-red-600" role="alert">
+                        {commentError}
+                      </p>
+                    )}
+
                     <form
                       className="mt-4 flex min-w-0 items-center gap-2"
                       onSubmit={(event) => {
                         event.preventDefault();
-                        submitComment(post.id);
+                        void submitComment(post.id);
                       }}
                     >
                       <input
@@ -1846,8 +1983,59 @@ export default function AppHome() {
                       />
 
                       <button
+                        type="button"
+                        onClick={() =>
+                          recordingCommentPostId === post.id
+                            ? stopVoiceComment()
+                            : void startVoiceComment(post.id)
+                        }
+                        disabled={
+                          (recordingCommentPostId !== null &&
+                            recordingCommentPostId !== post.id) ||
+                          (voiceCommentPostId !== null &&
+                            voiceCommentPostId !== post.id)
+                        }
+                        className="shrink-0 rounded-full bg-gray-100 p-3 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                        aria-label={
+                          recordingCommentPostId === post.id
+                            ? "Stop voice recording"
+                            : "Record voice comment"
+                        }
+                        title={
+                          recordingCommentPostId === post.id
+                            ? "Stop recording"
+                            : "Record voice comment"
+                        }
+                      >
+                        {recordingCommentPostId === post.id ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5 fill-current"
+                            aria-hidden="true"
+                          >
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5 fill-none stroke-current"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <rect x="9" y="2" width="6" height="12" rx="3" />
+                            <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />
+                          </svg>
+                        )}
+                      </button>
+
+                      <button
                         type="submit"
-                        disabled={!commentText.trim()}
+                        disabled={
+                          !commentText.trim() &&
+                          !(voiceCommentPostId === post.id && voiceCommentFile)
+                        }
                         className="shrink-0 px-2 py-2 text-sm font-bold text-black disabled:text-gray-300"
                       >
                         {tr("post")}
