@@ -30,6 +30,7 @@ type PostContextType = {
 };
 
 export type PostComment = {
+  userId: string | null;
   author: string;
   username: string;
   content: string;
@@ -55,6 +56,7 @@ type DatabasePost = {
 type DatabaseComment = {
   id: number;
   post_id: number;
+  user_id: string | null;
   content: string;
   author: string;
   username: string;
@@ -296,7 +298,7 @@ export function PostProvider({
           await supabase
             .from("post_comments")
             .select(
-              "id, post_id, content, author, username, created_at"
+              "id, post_id, user_id, content, author, username, created_at"
             )
             .in("post_id", postIds)
             .order("created_at", { ascending: true });
@@ -318,6 +320,7 @@ export function PostProvider({
           }
 
           grouped[postId].push({
+            userId: comment.user_id,
             author:
               comment.author?.trim() ||
               comment.username?.trim().replace(/^@/, "") ||
@@ -844,6 +847,7 @@ export function PostProvider({
       [postId]: [
         ...(current[postId] || []),
         {
+          userId: user.id,
           author,
           username,
           content: commentTime

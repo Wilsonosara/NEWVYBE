@@ -1804,9 +1804,18 @@ export default function AppHome() {
                           key={`${post.id}-comment-${index}`}
                           className="text-sm"
                         >
-                          <span className="mr-2 font-bold">
-                            {comment.author}
-                          </span>
+                          {comment.userId ? (
+                            <Link
+                              href={`/app/profile?id=${encodeURIComponent(comment.userId)}`}
+                              className="mr-2 font-bold hover:underline"
+                            >
+                              {comment.author}
+                            </Link>
+                          ) : (
+                            <span className="mr-2 font-bold">
+                              {comment.author}
+                            </span>
+                          )}
                           <span className="break-words text-gray-700">
                             {comment.content}
                           </span>
