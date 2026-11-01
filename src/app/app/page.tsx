@@ -1917,13 +1917,18 @@ export default function AppHome() {
                             {comment.content}
                           </span>
                           {comment.audioUrl && (
-                            <audio
-                              controls
-                              preload="none"
-                              src={comment.audioUrl}
-                              className="mt-2 block h-10 max-w-full"
-                              aria-label={`Voice comment by ${comment.author}`}
-                            />
+                            <div className="mt-2 max-w-full">
+                              <p className="mb-1 text-xs font-medium text-gray-500">
+                                {comment.username || `@${comment.author.replace(/^@/, "")}`}
+                              </p>
+                              <audio
+                                controls
+                                preload="none"
+                                src={comment.audioUrl}
+                                className="block h-10 max-w-full"
+                                aria-label={`Voice comment by ${comment.username || comment.author}`}
+                              />
+                            </div>
                           )}
                         </div>
                       ))}

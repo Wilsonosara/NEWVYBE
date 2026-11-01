@@ -91,9 +91,9 @@ type UploadedMedia = {
 const PostContext = createContext<PostContextType | null>(null);
 const VOICE_COMMENT_PREFIX = "__VYBE_AUDIO__:";
 
-function parseVoiceComment(content: string, supabase: ReturnType<typeof createClient>) {
+function parseVoiceComment(content: string) {
   if (!content.startsWith(VOICE_COMMENT_PREFIX)) {
-    return { content, audioUrl: undefined };
+    return { content, storagePath: undefined };
   }
 
   const lineBreak = content.indexOf("\n");
@@ -102,11 +102,7 @@ function parseVoiceComment(content: string, supabase: ReturnType<typeof createCl
     .trim();
   const text = lineBreak < 0 ? "" : content.slice(lineBreak + 1).trim();
 
-  if (!storagePath) return { content: text, audioUrl: undefined };
-
-  const { data } = supabase.storage.from("post-media").getPublicUrl(storagePath);
-
-  return { content: text, audioUrl: data.publicUrl };
+  return { content: text, storagePath: storagePath || undefined };
 }
 
 function formatPostTime(dateString: string) {
@@ -227,6 +223,7 @@ export function PostProvider({
   const [isLoaded, setIsLoaded] = useState(false);
 
   const postsRef = useRef<Post[]>([]);
+  const voiceObjectUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -360,6 +357,46 @@ export function PostProvider({
           }
         }
 
+        const parsedCommentContents = new Map<
+          number,
+          { content: string; audioUrl?: string }
+        >();
+
+        await Promise.all(
+          ((commentRows ?? []) as DatabaseComment[]).map(async (comment) => {
+            const parsed = parseVoiceComment(comment.content);
+
+            if (!parsed.storagePath) {
+              parsedCommentContents.set(comment.id, { content: parsed.content });
+              return;
+            }
+
+            const { data: audioFile, error: audioError } = await supabase.storage
+              .from("post-media")
+              .download(parsed.storagePath);
+
+            let audioUrl: string;
+
+            if (audioFile && !audioError) {
+              audioUrl = URL.createObjectURL(audioFile);
+              voiceObjectUrlsRef.current.push(audioUrl);
+            } else {
+              const { data } = supabase.storage
+                .from("post-media")
+                .getPublicUrl(parsed.storagePath);
+              audioUrl = data.publicUrl;
+              if (audioError) {
+                console.error("Could not load saved voice comment:", audioError);
+              }
+            }
+
+            parsedCommentContents.set(comment.id, {
+              content: parsed.content,
+              audioUrl,
+            });
+          })
+        );
+
         if (!active) return;
 
         const grouped: Record<number, PostComment[]> = {};
@@ -373,7 +410,9 @@ export function PostProvider({
             ? commentProfiles.get(comment.user_id)
             : undefined;
           const profileUsername = profile?.username?.trim();
-          const parsedContent = parseVoiceComment(comment.content, supabase);
+          const parsedContent = parsedCommentContents.get(comment.id) ?? {
+            content: comment.content,
+          };
           commentCounts[postId] = (commentCounts[postId] ?? 0) + 1;
 
           if (!grouped[postId]) {
@@ -426,6 +465,8 @@ export function PostProvider({
 
     return () => {
       active = false;
+      voiceObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      voiceObjectUrlsRef.current = [];
     };
   }, []);
 
