@@ -56,6 +56,19 @@ type Preferences = {
 };
 
 const STORAGE_KEY = "project-one-notifications";
+const REMOVED_FAKE_ACTORS = new Set([
+  "davidokafor",
+  "chiomajames",
+  "tundebello",
+  "amaraokafor",
+  "danieljames",
+]);
+
+function isRemovedFakeActor(name: string | null | undefined) {
+  return REMOVED_FAKE_ACTORS.has(
+    (name ?? "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]/g, "")
+  );
+}
 
 const DEFAULT_PREFERENCES: Preferences = {
   likes_comments: true,
@@ -729,10 +742,17 @@ export default function NotificationsPage() {
         }
       }
 
-      const mapped: Notification[] = rows.map((row) => {
+      const mapped: Notification[] = rows.flatMap((row) => {
         const profile = row.actor_id
           ? profileMap.get(row.actor_id)
           : undefined;
+
+        if (
+          isRemovedFakeActor(profile?.display_name) ||
+          isRemovedFakeActor(profile?.username)
+        ) {
+          return [];
+        }
 
         const type = row.type.toLowerCase();
 
@@ -743,7 +763,7 @@ export default function NotificationsPage() {
         if (type === "follow") action = t("followed");
         if (type === "mention") action = t("mentioned");
 
-        return {
+        return [{
           id: -row.id,
           databaseId: row.id,
           actorId: row.actor_id ?? undefined,
@@ -764,7 +784,7 @@ export default function NotificationsPage() {
           followedBack: row.actor_id
             ? followedIds.has(row.actor_id)
             : false,
-        };
+        }];
       });
 
       setDatabaseNotifications(mapped);
@@ -823,6 +843,17 @@ export default function NotificationsPage() {
       const grouped = new Map<string, DatabaseNotification[]>();
 
       for (const row of rows) {
+        const actorProfile = row.actor_id
+          ? profileMap.get(row.actor_id)
+          : undefined;
+
+        if (
+          isRemovedFakeActor(actorProfile?.display_name) ||
+          isRemovedFakeActor(actorProfile?.username)
+        ) {
+          continue;
+        }
+
         const senderKey = row.actor_id ?? `unknown-${row.id}`;
         const existing = grouped.get(senderKey) ?? [];
         existing.push(row);
@@ -891,7 +922,10 @@ export default function NotificationsPage() {
 
           setNotifications(
             parsed
-              .filter((item) => !item.databaseId)
+              .filter(
+                (item) =>
+                  !item.databaseId && !isRemovedFakeActor(item.user)
+              )
               .map((notification) => ({
                 ...notification,
                 icon:
