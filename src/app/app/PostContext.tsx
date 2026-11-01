@@ -29,8 +29,10 @@ type PostContextType = {
   addComment: (
     postId: number,
     comment: string,
-    audioFile?: File
+    audioFile?: File,
+    parentCommentId?: number | null
   ) => Promise<void>;
+  toggleCommentLike: (postId: number, commentId: number) => Promise<void>;
   deleteComment: (postId: number, commentId: number) => Promise<void>;
 };
 
@@ -41,6 +43,10 @@ export type PostComment = {
   username: string;
   content: string;
   audioUrl?: string;
+  parentCommentId: number | null;
+  createdAt: string;
+  likes: number;
+  likedByMe: boolean;
 };
 
 type DatabasePost = {
@@ -68,6 +74,7 @@ type DatabaseComment = {
   author: string;
   username: string;
   created_at: string;
+  parent_comment_id: number | null;
 };
 
 type CommentProfile = {
@@ -78,6 +85,11 @@ type CommentProfile = {
 
 type DatabaseLike = {
   post_id: number;
+};
+
+type DatabaseCommentLike = {
+  comment_id: number;
+  user_id: string;
 };
 
 type BlockRelationship = {
@@ -327,13 +339,34 @@ export function PostProvider({
           await supabase
             .from("post_comments")
             .select(
-              "id, post_id, user_id, content, author, username, created_at"
+              "id, post_id, user_id, content, author, username, created_at, parent_comment_id"
             )
             .in("post_id", postIds)
             .order("created_at", { ascending: true });
 
         if (commentError) throw commentError;
         if (!active) return;
+
+        const commentIds = ((commentRows ?? []) as DatabaseComment[]).map(
+          (comment) => comment.id
+        );
+        const { data: commentLikeRows, error: commentLikesError } =
+          commentIds.length > 0
+            ? await supabase
+                .from("post_comment_likes")
+                .select("comment_id, user_id")
+                .in("comment_id", commentIds)
+            : { data: [], error: null };
+
+        if (commentLikesError) throw commentLikesError;
+
+        const commentLikeCounts: Record<number, number> = {};
+        const likedCommentIds = new Set<number>();
+        for (const like of (commentLikeRows ?? []) as DatabaseCommentLike[]) {
+          commentLikeCounts[like.comment_id] =
+            (commentLikeCounts[like.comment_id] ?? 0) + 1;
+          if (like.user_id === user.id) likedCommentIds.add(like.comment_id);
+        }
 
         const commentUserIds = Array.from(
           new Set(
@@ -433,10 +466,12 @@ export function PostProvider({
             username: profileUsername
               ? `@${profileUsername.replace(/^@/, "")}`
               : comment.username?.trim() || "",
-            content: commentTime
-              ? `${parsedContent.content}${parsedContent.content ? " · " : ""}${commentTime}`
-              : parsedContent.content,
+            content: parsedContent.content,
             audioUrl: parsedContent.audioUrl,
+            parentCommentId: comment.parent_comment_id,
+            createdAt: commentTime,
+            likes: commentLikeCounts[comment.id] ?? 0,
+            likedByMe: likedCommentIds.has(comment.id),
           });
         }
 
@@ -880,7 +915,12 @@ export function PostProvider({
     window.dispatchEvent(new Event("project-one-likes-updated"));
   }
 
-  async function addComment(postId: number, comment: string, audioFile?: File) {
+  async function addComment(
+    postId: number,
+    comment: string,
+    audioFile?: File,
+    parentCommentId?: number | null
+  ) {
     const cleanComment = comment.trim();
 
     if (!cleanComment && !audioFile) return;
@@ -949,8 +989,9 @@ export function PostProvider({
           author,
           username,
           content: storedContent,
+          parent_comment_id: parentCommentId ?? null,
         })
-        .select("id, created_at")
+        .select("id, created_at, parent_comment_id")
         .single();
 
     if (insertError) {
@@ -987,10 +1028,12 @@ export function PostProvider({
           userId: user.id,
           author,
           username,
-          content: commentTime
-            ? `${cleanComment}${cleanComment ? " · " : ""}${commentTime}`
-            : cleanComment,
+          content: cleanComment,
           audioUrl,
+          parentCommentId: insertedComment.parent_comment_id,
+          createdAt: commentTime,
+          likes: 0,
+          likedByMe: false,
         },
       ],
     }));
@@ -1006,6 +1049,50 @@ export function PostProvider({
 
       return updatedPosts;
     });
+  }
+
+  async function toggleCommentLike(postId: number, commentId: number) {
+    const supabase = createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError) throw authError;
+    if (!user) throw new Error("Please log in to like a comment.");
+
+    const comment = (postComments[postId] ?? []).find(
+      (item) => item.id === commentId
+    );
+    if (!comment) return;
+
+    if (comment.likedByMe) {
+      const { error } = await supabase
+        .from("post_comment_likes")
+        .delete()
+        .eq("comment_id", commentId)
+        .eq("user_id", user.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from("post_comment_likes").insert({
+        comment_id: commentId,
+        user_id: user.id,
+      });
+      if (error) throw error;
+    }
+
+    setPostComments((current) => ({
+      ...current,
+      [postId]: (current[postId] ?? []).map((item) =>
+        item.id === commentId
+          ? {
+              ...item,
+              likes: Math.max(0, item.likes + (item.likedByMe ? -1 : 1)),
+              likedByMe: !item.likedByMe,
+            }
+          : item
+      ),
+    }));
   }
 
   async function deleteComment(postId: number, commentId: number) {
@@ -1054,9 +1141,13 @@ export function PostProvider({
 
     setPostComments((current) => ({
       ...current,
-      [postId]: (current[postId] ?? []).filter(
-        (item) => item.id !== commentId
-      ),
+      [postId]: (current[postId] ?? [])
+        .filter((item) => item.id !== commentId)
+        .map((item) =>
+          item.parentCommentId === commentId
+            ? { ...item, parentCommentId: null }
+            : item
+        ),
     }));
 
     const { count, error: countError } = await supabase
@@ -1102,6 +1193,7 @@ export function PostProvider({
         likePost,
         unlikePost,
         addComment,
+        toggleCommentLike,
         deleteComment,
       }}
     >

@@ -8,6 +8,7 @@ type StoryMedia = {
   mediaId: string;
   media: string;
   isVideo: boolean;
+  text?: string | null;
 };
 
 type Story = {
@@ -28,6 +29,7 @@ type StoryRow = {
   user_id: string;
   media_path: string;
   media_type: "image" | "video";
+  text_content: string | null;
   created_at: string;
   expires_at: string;
 };
@@ -375,7 +377,7 @@ export default function Stories() {
 
       const { data: storyRows, error: storiesError } = await supabase
         .from("stories")
-        .select("id, user_id, media_path, media_type, created_at, expires_at")
+        .select("id, user_id, media_path, media_type, text_content, created_at, expires_at")
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: true });
 
@@ -415,6 +417,7 @@ export default function Stories() {
           mediaId: row.id,
           media: data.publicUrl,
           isVideo: row.media_type === "video",
+          text: row.text_content,
         });
 
         grouped.set(row.user_id, items);
@@ -926,7 +929,11 @@ export default function Stories() {
     };
   }, [viewerIndex, mediaIndex, paused, nextStory]);
 
-  const addStory = async (files?: FileList | null) => {
+  const [pendingStoryFiles, setPendingStoryFiles] = useState<File[]>([]);
+  const [storyText, setStoryText] = useState("");
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
+
+  const addStory = (files?: FileList | null) => {
     if (!files || files.length === 0 || uploading) return;
 
     const selectedFiles = Array.from(files);
@@ -953,6 +960,15 @@ export default function Stories() {
       return;
     }
 
+    setPendingStoryFiles(selectedFiles);
+    setStoryText("");
+    setShowStoryComposer(true);
+  };
+
+  const uploadStory = async () => {
+    if (!pendingStoryFiles.length || uploading) return;
+
+    const selectedFiles = pendingStoryFiles;
     setUploading(true);
 
     try {
@@ -993,6 +1009,7 @@ export default function Stories() {
           user_id: user.id,
           media_path: mediaPath,
           media_type: mediaType,
+          text_content: storyText.trim() || null,
           expires_at: new Date(Date.now() + STORY_DURATION).toISOString(),
         });
 
@@ -1004,6 +1021,9 @@ export default function Stories() {
 
       setViewerIndex(null);
       setMediaIndex(0);
+      setShowStoryComposer(false);
+      setPendingStoryFiles([]);
+      setStoryText("");
 
       await loadStories();
 
@@ -1319,6 +1339,58 @@ export default function Stories() {
           onChange={(event) => void addStory(event.target.files)}
         />
 
+        {showStoryComposer && (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4"
+            onClick={() => {
+              if (uploading) return;
+              setShowStoryComposer(false);
+              setPendingStoryFiles([]);
+            }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-950">Add text to your story</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowStoryComposer(false);
+                    setPendingStoryFiles([]);
+                  }}
+                  disabled={uploading}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                  aria-label="Close"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+              <p className="mb-3 text-sm text-gray-600">
+                {pendingStoryFiles.length} {pendingStoryFiles.length === 1 ? "item" : "items"} selected
+              </p>
+              <textarea
+                value={storyText}
+                onChange={(event) => setStoryText(event.target.value)}
+                maxLength={300}
+                rows={3}
+                placeholder="Write something..."
+                aria-label="Story text"
+                className="w-full resize-none rounded-xl border border-gray-200 px-3 py-3 text-sm outline-none focus:border-gray-400"
+              />
+              <button
+                type="button"
+                onClick={() => void uploadStory()}
+                disabled={uploading}
+                className="mt-4 w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-50"
+              >
+                {uploading ? "Posting..." : "Post story"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {uploading && (
           <p className="mt-3 text-sm font-medium text-green-700">
             Uploading your story media...
@@ -1438,6 +1510,14 @@ export default function Stories() {
                     className="h-full w-full object-cover"
                   />
                 )}
+              </div>
+            )}
+
+            {activeMedia?.text && (
+              <div className="pointer-events-none absolute inset-x-5 bottom-[24%] z-[5] flex justify-center">
+                <p className="max-w-full whitespace-pre-wrap break-words rounded-xl bg-black/45 px-4 py-2 text-center text-lg font-semibold text-white shadow-lg">
+                  {activeMedia.text}
+                </p>
               </div>
             )}
 

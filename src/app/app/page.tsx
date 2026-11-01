@@ -1,10 +1,17 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
-import { usePosts } from "./PostContext";
+import { usePosts, type PostComment } from "./PostContext";
 import Stories from "./Stories";
 import MediaDisplay from "./MediaDisplay";
 import { useLanguage, type Language } from "./LanguageProvider";
@@ -581,6 +588,7 @@ export default function AppHome() {
     posts,
     postComments: allPostComments,
     addComment,
+    toggleCommentLike,
     deletePost,
     deleteComment,
   } = usePosts();
@@ -597,6 +605,14 @@ export default function AppHome() {
   const [saveStatus, setSaveStatus] = useState("");
   const [openComments, setOpenComments] = useState<number | null>(null);
   const [commentText, setCommentText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<{
+    postId: number;
+    comment: PostComment;
+  } | null>(null);
+  const [expandedReplies, setExpandedReplies] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [pendingCommentLike, setPendingCommentLike] = useState<number | null>(null);
   const [recordingCommentPostId, setRecordingCommentPostId] = useState<number | null>(null);
   const [voiceCommentPostId, setVoiceCommentPostId] = useState<number | null>(null);
   const [voiceCommentFile, setVoiceCommentFile] = useState<File | null>(null);
@@ -1165,13 +1181,19 @@ export default function AppHome() {
 
     setCommentError("");
     try {
-      await addComment(postId, cleanComment, audioFile ?? undefined);
+      await addComment(
+        postId,
+        cleanComment,
+        audioFile ?? undefined,
+        replyingTo?.postId === postId ? replyingTo.comment.id : null
+      );
       createSimulatedNotification(
         "comment",
         postId,
         cleanComment || "Voice comment"
       );
       setCommentText("");
+      setReplyingTo(null);
       clearVoiceComment();
     } catch (error) {
       setCommentError(
@@ -1179,6 +1201,118 @@ export default function AppHome() {
       );
     }
   };
+
+  const handleCommentLike = async (postId: number, commentId: number) => {
+    if (pendingCommentLike !== null) return;
+    setPendingCommentLike(commentId);
+    setCommentError("");
+    try {
+      await toggleCommentLike(postId, commentId);
+    } catch (error) {
+      setCommentError(
+        error instanceof Error ? error.message : "Could not update comment like."
+      );
+    } finally {
+      setPendingCommentLike(null);
+    }
+  };
+
+  const renderComment = (postId: number, comment: PostComment, depth = 0) => (
+    <div
+      key={`${postId}-comment-${comment.id}`}
+      className="flex gap-2.5"
+      style={{ marginLeft: `${Math.min(depth * 24, 48)}px` }}
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold text-gray-700">
+        {comment.author.trim().charAt(0).toUpperCase() || "V"}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="rounded-2xl bg-gray-100 px-3 py-2">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            {comment.userId ? (
+              <Link
+                href={`/app/profile?id=${encodeURIComponent(comment.userId)}`}
+                className="text-sm font-bold text-gray-950 hover:underline"
+              >
+                {comment.author}
+              </Link>
+            ) : (
+              <span className="text-sm font-bold text-gray-950">{comment.author}</span>
+            )}
+            {comment.username && (
+              <span className="text-xs text-gray-500">{comment.username}</span>
+            )}
+            <span className="text-xs text-gray-400">· {comment.createdAt}</span>
+          </div>
+          {comment.content && (
+            <p className="mt-1 break-words text-sm text-gray-800">{comment.content}</p>
+          )}
+          {comment.audioUrl && (
+            <audio
+              controls
+              preload="none"
+              src={comment.audioUrl}
+              className="mt-2 block h-10 max-w-full"
+              aria-label={`Voice comment by ${comment.username || comment.author}`}
+            />
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-4 px-2 text-xs font-semibold text-gray-500">
+          <button
+            type="button"
+            onClick={() => void handleCommentLike(postId, comment.id)}
+            disabled={pendingCommentLike === comment.id}
+            className={comment.likedByMe ? "text-rose-600" : "hover:text-gray-900"}
+            aria-label={comment.likedByMe ? "Unlike comment" : "Like comment"}
+          >
+            {comment.likedByMe ? "♥" : "♡"}{" "}
+            {comment.likes > 0 ? comment.likes : "Like"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setExpandedReplies((current) => {
+                const next = new Set(current);
+                if (next.has(comment.id)) next.delete(comment.id);
+                else next.add(comment.id);
+                return next;
+              });
+              setReplyingTo({ postId, comment });
+              setCommentError("");
+            }}
+            className="hover:text-gray-900"
+            aria-expanded={expandedReplies.has(comment.id)}
+          >
+            Reply
+            {" "}
+            {allPostComments[postId]?.filter(
+              (reply) => reply.parentCommentId === comment.id
+            ).length ?? 0}
+          </button>
+          {comment.userId === currentUserId && (
+            <button
+              type="button"
+              onClick={() => void handleDeleteComment(postId, comment.id)}
+              disabled={deletingCommentId !== null}
+              className="hover:text-gray-900 disabled:opacity-50"
+            >
+              {deletingCommentId === comment.id ? "Deleting…" : "Delete"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderReplies = (postId: number, parentId: number, depth = 1): ReactNode =>
+    (expandedReplies.has(parentId) ? allPostComments[postId] : undefined)
+      ?.filter((comment) => comment.parentCommentId === parentId)
+      .map((comment) => (
+        <Fragment key={`${postId}-reply-${comment.id}`}>
+          {renderComment(postId, comment, depth)}
+          {renderReplies(postId, comment.id, depth + 1)}
+        </Fragment>
+      ));
 
   const handleDeleteComment = async (postId: number, commentId: number) => {
     if (deletingCommentId !== null) return;
@@ -1949,57 +2083,15 @@ export default function AppHome() {
 
                 {openComments === post.id && (
                   <div className="mt-4 border-t border-gray-100 pt-4">
-                    <div className="space-y-3">
-                      {postComments.map((comment, index) => (
-                        <div
-                          key={`${post.id}-comment-${index}`}
-                          className="text-sm"
-                        >
-                          {comment.userId ? (
-                            <Link
-                              href={`/app/profile?id=${encodeURIComponent(comment.userId)}`}
-                              className="mr-2 font-bold hover:underline"
-                            >
-                              {comment.author}
-                            </Link>
-                          ) : (
-                            <span className="mr-2 font-bold">
-                              {comment.author}
-                            </span>
-                          )}
-                          <span className="break-words text-gray-700">
-                            {comment.content}
-                          </span>
-                          {comment.userId === currentUserId && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleDeleteComment(post.id, comment.id)
-                              }
-                              disabled={deletingCommentId !== null}
-                              className="ml-2 text-xs text-gray-500 hover:text-black hover:underline disabled:opacity-50"
-                            >
-                              {deletingCommentId === comment.id
-                                ? "Deleting…"
-                                : "Delete"}
-                            </button>
-                          )}
-                          {comment.audioUrl && (
-                            <div className="mt-2 max-w-full">
-                              <p className="mb-1 text-xs font-medium text-gray-500">
-                                {comment.username || `@${comment.author.replace(/^@/, "")}`}
-                              </p>
-                              <audio
-                                controls
-                                preload="none"
-                                src={comment.audioUrl}
-                                className="block h-10 max-w-full"
-                                aria-label={`Voice comment by ${comment.username || comment.author}`}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                    <div className="space-y-4">
+                      {postComments
+                        .filter((comment) => !comment.parentCommentId)
+                        .map((comment) => (
+                          <div key={`${post.id}-thread-${comment.id}`} className="space-y-3">
+                            {renderComment(post.id, comment)}
+                            {renderReplies(post.id, comment.id)}
+                          </div>
+                        ))}
 
                       {postComments.length === 0 && (
                         <p className="text-sm text-gray-500">
@@ -2040,18 +2132,31 @@ export default function AppHome() {
                     )}
 
                     <form
-                      className="mt-4 flex min-w-0 items-center gap-2"
+                      className="relative mt-4 flex min-w-0 items-center gap-2"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void submitComment(post.id);
                       }}
                     >
+                      {replyingTo?.postId === post.id && (
+                        <div className="absolute bottom-full left-2 mb-1 flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
+                          <span>Replying to {replyingTo.comment.author}</span>
+                          <button
+                            type="button"
+                            onClick={() => setReplyingTo(null)}
+                            className="font-bold hover:text-gray-950"
+                            aria-label="Cancel reply"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
                       <input
                         type="text"
                         value={commentText}
                         onChange={(event) => setCommentText(event.target.value)}
-                        placeholder={tr("addComment")}
-                        aria-label={tr("addComment")}
+                        placeholder={replyingTo?.postId === post.id ? `Reply to ${replyingTo.comment.author}...` : tr("addComment")}
+                        aria-label={replyingTo?.postId === post.id ? `Reply to ${replyingTo.comment.author}` : tr("addComment")}
                         className="min-w-0 flex-1 rounded-full bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-gray-400"
                       />
 
