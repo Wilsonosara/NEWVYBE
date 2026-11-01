@@ -63,6 +63,12 @@ type DatabaseComment = {
   created_at: string;
 };
 
+type CommentProfile = {
+  id: string;
+  display_name: string | null;
+  username: string | null;
+};
+
 type DatabaseLike = {
   post_id: number;
 };
@@ -306,6 +312,32 @@ export function PostProvider({
         if (commentError) throw commentError;
         if (!active) return;
 
+        const commentUserIds = Array.from(
+          new Set(
+            ((commentRows ?? []) as DatabaseComment[])
+              .map((comment) => comment.user_id)
+              .filter((userId): userId is string => Boolean(userId))
+          )
+        );
+        const commentProfiles = new Map<string, CommentProfile>();
+
+        if (commentUserIds.length > 0) {
+          const { data: profileRows, error: profilesError } = await supabase
+            .from("profiles")
+            .select("id, display_name, username")
+            .in("id", commentUserIds);
+
+          if (profilesError) {
+            console.error("Could not load comment profiles:", profilesError);
+          } else {
+            for (const profile of (profileRows ?? []) as CommentProfile[]) {
+              commentProfiles.set(profile.id, profile);
+            }
+          }
+        }
+
+        if (!active) return;
+
         const grouped: Record<number, PostComment[]> = {};
         const commentCounts: Record<number, number> = {};
 
@@ -313,6 +345,10 @@ export function PostProvider({
           []) as DatabaseComment[]) {
           const postId = Number(comment.post_id);
           const commentTime = formatPostTime(comment.created_at);
+          const profile = comment.user_id
+            ? commentProfiles.get(comment.user_id)
+            : undefined;
+          const profileUsername = profile?.username?.trim();
           commentCounts[postId] = (commentCounts[postId] ?? 0) + 1;
 
           if (!grouped[postId]) {
@@ -322,10 +358,14 @@ export function PostProvider({
           grouped[postId].push({
             userId: comment.user_id,
             author:
+              profile?.display_name?.trim() ||
+              profileUsername?.replace(/^@/, "") ||
               comment.author?.trim() ||
               comment.username?.trim().replace(/^@/, "") ||
               "VYBE user",
-            username: comment.username?.trim() || "",
+            username: profileUsername
+              ? `@${profileUsername.replace(/^@/, "")}`
+              : comment.username?.trim() || "",
             content: commentTime
               ? `${comment.content} · ${commentTime}`
               : comment.content,
