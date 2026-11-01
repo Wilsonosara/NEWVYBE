@@ -16,7 +16,7 @@ import { createClient } from "../../../utils/supabase/client";
 
 type PostContextType = {
   posts: Post[];
-  postComments: Record<number, string[]>;
+  postComments: Record<number, PostComment[]>;
   addPost: (
     content: string,
     world: string,
@@ -27,6 +27,12 @@ type PostContextType = {
   likePost: (postId: number) => Promise<void>;
   unlikePost: (postId: number) => Promise<void>;
   addComment: (postId: number, comment: string) => Promise<void>;
+};
+
+export type PostComment = {
+  author: string;
+  username: string;
+  content: string;
 };
 
 type DatabasePost = {
@@ -184,7 +190,7 @@ export function PostProvider({
 }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [postComments, setPostComments] = useState<
-    Record<number, string[]>
+    Record<number, PostComment[]>
   >({});
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -298,7 +304,7 @@ export function PostProvider({
         if (commentError) throw commentError;
         if (!active) return;
 
-        const grouped: Record<number, string[]> = {};
+        const grouped: Record<number, PostComment[]> = {};
         const commentCounts: Record<number, number> = {};
 
         for (const comment of (commentRows ??
@@ -311,11 +317,16 @@ export function PostProvider({
             grouped[postId] = [];
           }
 
-          grouped[postId].push(
-            commentTime
+          grouped[postId].push({
+            author:
+              comment.author?.trim() ||
+              comment.username?.trim().replace(/^@/, "") ||
+              "VYBE user",
+            username: comment.username?.trim() || "",
+            content: commentTime
               ? `${comment.content} · ${commentTime}`
-              : comment.content
-          );
+              : comment.content,
+          });
         }
 
         setPostComments(grouped);
@@ -832,9 +843,13 @@ export function PostProvider({
       ...current,
       [postId]: [
         ...(current[postId] || []),
-        commentTime
-          ? `${cleanComment} · ${commentTime}`
-          : cleanComment,
+        {
+          author,
+          username,
+          content: commentTime
+            ? `${cleanComment} · ${commentTime}`
+            : cleanComment,
+        },
       ],
     }));
 

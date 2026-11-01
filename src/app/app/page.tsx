@@ -1804,9 +1804,11 @@ export default function AppHome() {
                           key={`${post.id}-comment-${index}`}
                           className="text-sm"
                         >
-                          <span className="mr-2 font-bold">{tr("you")}</span>
+                          <span className="mr-2 font-bold">
+                            {comment.author}
+                          </span>
                           <span className="break-words text-gray-700">
-                            {comment}
+                            {comment.content}
                           </span>
                         </div>
                       ))}
