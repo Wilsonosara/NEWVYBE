@@ -9,6 +9,7 @@ type StoryMedia = {
   media: string;
   isVideo: boolean;
   text?: string | null;
+  createdAt?: number;
 };
 
 type Story = {
@@ -265,11 +266,27 @@ function getMediaItems(story: Story): StoryMedia[] {
         mediaId: story.mediaId ?? story.id,
         media: story.media,
         isVideo: story.isVideo ?? false,
+        createdAt: story.createdAt,
       },
     ];
   }
 
   return [];
+}
+
+function formatStoryAge(createdAt?: number) {
+  if (createdAt === undefined || !Number.isFinite(createdAt)) return "Now";
+
+  const ageInSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
+  if (ageInSeconds < 60) return "Just now";
+
+  const ageInMinutes = Math.floor(ageInSeconds / 60);
+  if (ageInMinutes < 60) return `${ageInMinutes}m`;
+
+  const ageInHours = Math.floor(ageInMinutes / 60);
+  if (ageInHours < 24) return `${ageInHours}h`;
+
+  return `${Math.floor(ageInHours / 24)}d`;
 }
 
 function getProfileDetails() {
@@ -418,6 +435,7 @@ export default function Stories() {
           media: data.publicUrl,
           isVideo: row.media_type === "video",
           text: row.text_content,
+          createdAt: new Date(row.created_at).getTime(),
         });
 
         grouped.set(row.user_id, items);
@@ -447,7 +465,9 @@ export default function Stories() {
           isVideo: cover.isVideo,
           mediaItems: items,
           own: isOwnStory,
-          createdAt: Date.now(),
+          createdAt: Math.max(
+            ...items.map((item) => item.createdAt ?? Date.now())
+          ),
         });
       }
 
@@ -1558,7 +1578,7 @@ export default function Stories() {
                   </p>
 
                   <p className="text-xs text-white/70">
-                    {activeStory.username} · Now
+                    {activeStory.username} · {formatStoryAge(activeMedia?.createdAt)}
                     {activeMediaItems.length > 1 &&
                       ` · ${mediaIndex + 1}/${activeMediaItems.length}`}
                   </p>
