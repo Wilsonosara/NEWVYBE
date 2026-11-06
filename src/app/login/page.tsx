@@ -81,6 +81,25 @@ function LoginPageContent() {
           </p>
         )}
 
+        {searchParams.get("message") === "password_updated" && (
+          <p
+            role="status"
+            className="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm leading-5 text-gray-700"
+          >
+            Your password has been updated. You can now log in with it.
+          </p>
+        )}
+
+        {searchParams.get("message") === "password_recovery_failed" && (
+          <p
+            role="alert"
+            className="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm leading-5 text-gray-700"
+          >
+            The password reset link is invalid or has expired. Please request a
+            new one.
+          </p>
+        )}
+
         <form onSubmit={handleLogin} className="mt-7 space-y-5">
           <div>
             <label
@@ -153,6 +172,14 @@ function LoginPageContent() {
                   )}
                 </svg>
               </button>
+            </div>
+            <div className="mt-2 text-right">
+              <Link
+                href="/forgot-password"
+                className="text-sm font-medium text-gray-600 underline underline-offset-4 hover:text-gray-900"
+              >
+                Forgot password?
+              </Link>
             </div>
           </div>
 

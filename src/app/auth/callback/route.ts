@@ -36,7 +36,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const failureMessage = next === "/reset-password"
+    ? "password_recovery_failed"
+    : "confirmation_failed";
+
   return NextResponse.redirect(
-    new URL("/login?message=confirmation_failed", requestUrl.origin)
+    new URL(`/login?message=${failureMessage}`, requestUrl.origin)
   );
 }
