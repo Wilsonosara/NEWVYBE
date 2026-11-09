@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -18,12 +19,16 @@ export default function ForgotPasswordPage() {
 
     try {
       const supabase = createClient();
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        email.trim(),
-        {
-          redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
-        }
-      );
+
+      const siteUrl =
+        process.env.NODE_ENV === "production"
+          ? "https://dashing-lamington-2a1aa7.netlify.app"
+          : window.location.origin;
+
+      const { error: resetError } =
+        await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${siteUrl}/auth/callback?next=/reset-password`,
+        });
 
       if (resetError) {
         setError(resetError.message);
