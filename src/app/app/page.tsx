@@ -671,6 +671,10 @@ export default function AppHome() {
   const [followedAuthors, setFollowedAuthors] = useState<string[]>([]);
   const [pendingFollowAuthors, setPendingFollowAuthors] = useState<string[]>([]);
   const [viewerPostId, setViewerPostId] = useState<number | null>(null);
+  const [outgoingViewerPostId, setOutgoingViewerPostId] = useState<number | null>(null);
+  const [viewerDirection, setViewerDirection] = useState<"next" | "previous" | null>(null);
+  const [viewerTransitioning, setViewerTransitioning] = useState(false);
+  const viewerTransitionTimerRef = useRef<number | null>(null);
   const [deletingPost, setDeletingPost] = useState<number | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
 
@@ -1104,6 +1108,56 @@ export default function AppHome() {
       setPendingFollowAuthors((current) => current.filter((id) => id !== authorId));
     }
   };
+
+  const openPostViewer = (postId: number) => {
+    if (viewerTransitionTimerRef.current !== null) {
+      window.clearTimeout(viewerTransitionTimerRef.current);
+      viewerTransitionTimerRef.current = null;
+    }
+    setOutgoingViewerPostId(null);
+    setViewerDirection(null);
+    setViewerTransitioning(false);
+    setViewerPostId(postId);
+  };
+
+  const closePostViewer = () => {
+    if (viewerTransitionTimerRef.current !== null) {
+      window.clearTimeout(viewerTransitionTimerRef.current);
+      viewerTransitionTimerRef.current = null;
+    }
+    setViewerPostId(null);
+    setOutgoingViewerPostId(null);
+    setViewerDirection(null);
+    setViewerTransitioning(false);
+  };
+
+  const transitionToPost = (
+    currentPostId: number,
+    nextPostId: number,
+    direction: "next" | "previous"
+  ) => {
+    if (viewerTransitioning || viewerPostId !== currentPostId) return;
+
+    setOutgoingViewerPostId(currentPostId);
+    setViewerDirection(direction);
+    setViewerTransitioning(true);
+    setViewerPostId(nextPostId);
+
+    if (viewerTransitionTimerRef.current !== null) {
+      window.clearTimeout(viewerTransitionTimerRef.current);
+    }
+    viewerTransitionTimerRef.current = window.setTimeout(() => {
+      setOutgoingViewerPostId(null);
+      setViewerTransitioning(false);
+      viewerTransitionTimerRef.current = null;
+    }, 320);
+  };
+
+  useEffect(() => () => {
+    if (viewerTransitionTimerRef.current !== null) {
+      window.clearTimeout(viewerTransitionTimerRef.current);
+    }
+  }, []);
 
   const toggleLike = async (postId: number) => {
     if (pendingLikePost !== null || !likesLoaded) return;
@@ -2079,7 +2133,7 @@ export default function AppHome() {
                 )}
 
                 {post.content && (
-                  <button type="button" onClick={() => setViewerPostId(post.id)} className="block w-full pb-3 text-left">
+                  <button type="button" onClick={() => openPostViewer(post.id)} className="block w-full pb-3 text-left">
                     <p className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-900">
                       {post.content}
                     </p>
@@ -2090,9 +2144,13 @@ export default function AppHome() {
                   mediaId={post.mediaId}
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
-                  isViewerOpen={viewerPostId === post.id}
-                  onOpenViewer={() => setViewerPostId(post.id)}
-                  onCloseViewer={() => setViewerPostId(null)}
+                  isViewerOpen={viewerPostId === post.id || outgoingViewerPostId === post.id}
+                  isViewerTransitionIncoming={viewerPostId === post.id && viewerTransitioning}
+                  isViewerTransitionOutgoing={outgoingViewerPostId === post.id}
+                  isViewerTransitioning={viewerTransitioning}
+                  viewerDirection={viewerDirection}
+                  onOpenViewer={() => openPostViewer(post.id)}
+                  onCloseViewer={closePostViewer}
                   authorName={authorName}
                   authorUsername={profileUsername.startsWith("@") ? profileUsername : `@${profileUsername}`}
                   authorAvatarUrl={authorAvatar}
@@ -2124,7 +2182,7 @@ export default function AppHome() {
                       postIndex + (direction === "next" ? 1 : -1);
                     const targetPost = posts[targetIndex];
                     if (!targetPost) return;
-                    setViewerPostId(targetPost.id);
+                    transitionToPost(post.id, targetPost.id, direction);
                   }}
                 />
 

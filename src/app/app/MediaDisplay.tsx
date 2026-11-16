@@ -12,6 +12,10 @@ type MediaDisplayProps = {
   mediaType?: "image" | "video";
   mediaName?: string;
   isViewerOpen?: boolean;
+  isViewerTransitionIncoming?: boolean;
+  isViewerTransitionOutgoing?: boolean;
+  isViewerTransitioning?: boolean;
+  viewerDirection?: "next" | "previous" | null;
   onOpenViewer?: () => void;
   onCloseViewer?: () => void;
   onNavigate?: (direction: "next" | "previous") => void;
@@ -42,6 +46,10 @@ export default function MediaDisplay({
   mediaType,
   mediaName,
   isViewerOpen,
+  isViewerTransitionIncoming = false,
+  isViewerTransitionOutgoing = false,
+  isViewerTransitioning = false,
+  viewerDirection = null,
   onOpenViewer,
   onCloseViewer,
   onNavigate,
@@ -88,6 +96,7 @@ export default function MediaDisplay({
 
   const navigateToPost = useCallback((direction: "next" | "previous") => {
     if (!onNavigate) return;
+    if (isViewerTransitioning) return;
     if (navigationTriggeredRef.current) return;
     navigationTriggeredRef.current = true;
     if (isViewerOpen === undefined) closeViewer();
@@ -95,7 +104,7 @@ export default function MediaDisplay({
     window.setTimeout(() => {
       navigationTriggeredRef.current = false;
     }, 350);
-  }, [closeViewer, isViewerOpen, onNavigate]);
+  }, [closeViewer, isViewerOpen, isViewerTransitioning, onNavigate]);
 
   const stopViewerClick = (event: { stopPropagation: () => void }) =>
     event.stopPropagation();
@@ -261,20 +270,22 @@ export default function MediaDisplay({
 
       {isFullscreen && (
         <div
-          className="fixed inset-0 z-40 h-[100dvh] w-screen overflow-hidden bg-black"
+          className={`fixed inset-0 ${isViewerTransitionIncoming ? "z-[41]" : "z-40"} h-[100dvh] w-screen overflow-hidden bg-black ${isViewerTransitionOutgoing ? "pointer-events-none" : ""} ${isViewerTransitionIncoming ? viewerDirection === "previous" ? "vybe-viewer-enter-down" : "vybe-viewer-enter-up" : ""}`}
           role="dialog"
           aria-modal="true"
           aria-label="Post viewer. Scroll or swipe to move between posts."
           onClick={closeViewer}
           onWheel={(event) => {
-            if (Math.abs(event.deltaY) < 30 || !onNavigate) return;
+            if (isViewerTransitioning || Math.abs(event.deltaY) < 30 || !onNavigate) return;
             event.preventDefault();
             navigateToPost(event.deltaY > 0 ? "next" : "previous");
           }}
           onTouchStart={(event) => {
+            if (isViewerTransitioning) return;
             touchStartYRef.current = event.touches[0]?.clientY ?? null;
           }}
           onTouchEnd={(event) => {
+            if (isViewerTransitioning) return;
             const startY = touchStartYRef.current;
             const endY = event.changedTouches[0]?.clientY;
             touchStartYRef.current = null;
