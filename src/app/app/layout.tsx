@@ -466,15 +466,6 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
             </Link>
 
             <Link
-              href="/app/create"
-              aria-label={t("create")}
-              title={t("create")}
-              className={desktopIconClass}
-            >
-              <CreateIcon />
-            </Link>
-
-            <Link
               href="/app/connect"
               aria-label={t("connect")}
               title={t("connect")}
@@ -510,6 +501,15 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
             >
               <MessageIcon />
               <MessageBadge />
+            </Link>
+
+            <Link
+              href="/app/create"
+              aria-label={t("create")}
+              title={t("create")}
+              className={desktopIconClass}
+            >
+              <CreateIcon />
             </Link>
           </nav>
 
@@ -597,13 +597,17 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
           </Link>
 
           <Link
-            href="/app/notifications"
-            aria-label={t("notifications")}
-            title={t("notifications")}
-            className="relative flex h-12 w-12 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 hover:text-black active:scale-90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+            href="/app/create"
+            aria-label={t("create")}
+            title={t("create")}
+            className="relative flex h-12 w-[72px] shrink-0 items-center justify-center rounded-full bg-[#202124] text-white shadow-sm transition active:scale-95 dark:bg-[#f4f1e8] dark:text-[#202124]"
           >
-            <NotificationIcon />
-            <NotificationBadge />
+            <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span className="absolute -right-2 -top-2 rounded-full bg-[#d6a72c] px-2 py-0.5 text-[10px] font-bold leading-4 tracking-wide text-[#34250a] shadow-sm">
+              NEW
+            </span>
           </Link>
 
           <Link
@@ -623,6 +627,16 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
           >
             <MessageIcon />
             <MessageBadge />
+          </Link>
+
+          <Link
+            href="/app/notifications"
+            aria-label={t("notifications")}
+            title={t("notifications")}
+            className="relative flex h-12 w-12 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 hover:text-black active:scale-90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+          >
+            <NotificationIcon />
+            <NotificationBadge />
           </Link>
         </div>
       </nav>
