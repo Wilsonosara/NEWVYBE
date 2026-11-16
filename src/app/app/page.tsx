@@ -1850,9 +1850,9 @@ export default function AppHome() {
           </Link>
 
           <Link
-            href="/app/create"
-            aria-label={tr("createPost")}
-            title={tr("createPost")}
+            href="/app/notifications"
+            aria-label={tr("notifications")}
+            title={tr("notifications")}
             className="flex h-10 w-10 items-center justify-center rounded-full text-gray-800 transition hover:bg-gray-100"
           >
             <svg
@@ -1862,9 +1862,10 @@ export default function AppHome() {
               stroke="currentColor"
               strokeWidth="1.8"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <rect x="3" y="3" width="18" height="18" rx="5" />
-              <path d="M12 8v8M8 12h8" />
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+              <path d="M10 21h4" />
             </svg>
           </Link>
         </header>
