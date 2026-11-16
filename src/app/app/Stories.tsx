@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 
 type StoryMedia = {
@@ -1578,7 +1579,18 @@ export default function Stories() {
                   </p>
 
                   <p className="text-xs text-white/70">
-                    {activeStory.username} · {formatStoryAge(activeMedia?.createdAt)}
+                    {activeOwnerId ? (
+                      <Link
+                        href={`/app/profile?id=${encodeURIComponent(activeOwnerId)}`}
+                        className="hover:text-white hover:underline"
+                        aria-label={`View ${activeStory.name}'s profile`}
+                      >
+                        {activeStory.username}
+                      </Link>
+                    ) : (
+                      activeStory.username
+                    )}
+                    <span> · {formatStoryAge(activeMedia?.createdAt)}</span>
                     {activeMediaItems.length > 1 &&
                       ` · ${mediaIndex + 1}/${activeMediaItems.length}`}
                   </p>

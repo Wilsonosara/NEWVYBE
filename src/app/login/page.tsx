@@ -3,11 +3,9 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "../../../utils/supabase/client";
+import { useSearchParams } from "next/navigation";
 
 function LoginPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [email, setEmail] = useState("");
@@ -22,24 +20,21 @@ function LoginPageContent() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
-
-      const { error: loginError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
       });
+      const result = (await response.json()) as { error?: string };
 
-      if (loginError) {
-        setError(
-          loginError.message === "Email not confirmed"
-            ? "Please confirm your email address using the link we sent you before logging in."
-            : loginError.message
-        );
+      if (!response.ok) {
+        setError(result.error ?? "Unable to log in. Please check your details and try again.");
         return;
       }
 
-      router.replace("/app");
-      router.refresh();
+      // Reload so the server sees the session cookie created by the login route.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/app");
     } catch {
       setError(
         "Unable to log in right now. Please check your connection and try again."

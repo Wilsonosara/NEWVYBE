@@ -48,6 +48,38 @@ type FeedProfile = {
   avatar_url: string | null;
 };
 
+type LikedByUser = {
+  id: string;
+  name: string;
+  username: string | null;
+};
+
+function playLikePopSound() {
+  if (typeof window === "undefined" || !window.AudioContext) return;
+
+  try {
+    const context = new window.AudioContext();
+    const oscillator = context.createOscillator();
+    const volume = context.createGain();
+    const now = context.currentTime;
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(720, now);
+    oscillator.frequency.exponentialRampToValueAtTime(430, now + 0.11);
+    volume.gain.setValueAtTime(0.0001, now);
+    volume.gain.exponentialRampToValueAtTime(0.16, now + 0.012);
+    volume.gain.exponentialRampToValueAtTime(0.0001, now + 0.13);
+    oscillator.connect(volume);
+    volume.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.14);
+    oscillator.onended = () => void context.close();
+    if (context.state === "suspended") void context.resume();
+  } catch {
+    // The like interaction still works when browser audio is unavailable.
+  }
+}
+
 const feedTranslations: Record<Language, Record<string, string>> = {
   en: {
     stories: "Stories",
@@ -596,11 +628,14 @@ export default function AppHome() {
   const [likedPosts, setLikedPosts] = useState<number[]>([]);
   const [dislikedPosts, setDislikedPosts] = useState<number[]>([]);
   const [reactionCounts, setReactionCounts] = useState<Record<number, { likes: number; dislikes: number }>>({});
+  const [likersByPost, setLikersByPost] = useState<Record<number, LikedByUser[]>>({});
   const [reactionStatus, setReactionStatus] = useState<{ postId: number; message: string } | null>(null);
   const [savedPosts, setSavedPosts] = useState<number[]>([]);
   const [interactionsLoaded, setInteractionsLoaded] = useState(false);
   const [likesLoaded, setLikesLoaded] = useState(false);
   const [pendingLikePost, setPendingLikePost] = useState<number | null>(null);
+  const [poppingLikePostId, setPoppingLikePostId] = useState<number | null>(null);
+  const likePopTimerRef = useRef<number | null>(null);
   const [pendingSavePosts, setPendingSavePosts] = useState<number[]>([]);
   const [saveStatus, setSaveStatus] = useState("");
   const [openComments, setOpenComments] = useState<number | null>(null);
@@ -633,6 +668,9 @@ export default function AppHome() {
   const [moreOptions, setMoreOptions] = useState<number | null>(null);
   const [highlightedPost, setHighlightedPost] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [followedAuthors, setFollowedAuthors] = useState<string[]>([]);
+  const [pendingFollowAuthors, setPendingFollowAuthors] = useState<string[]>([]);
+  const [viewerPostId, setViewerPostId] = useState<number | null>(null);
   const [deletingPost, setDeletingPost] = useState<number | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
 
@@ -752,6 +790,38 @@ export default function AppHome() {
   useEffect(() => {
     let active = true;
 
+    async function loadFollowedAuthors() {
+      if (!currentUserId) {
+        setFollowedAuthors([]);
+        return;
+      }
+
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", currentUserId);
+
+      if (error) {
+        console.error("Could not load followed authors:", error);
+        return;
+      }
+
+      if (active) {
+        setFollowedAuthors((data ?? []).map((row) => row.following_id));
+      }
+    }
+
+    void loadFollowedAuthors();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUserId]);
+
+  useEffect(() => {
+    let active = true;
+
     async function loadSavedPosts() {
       try {
         const supabase = createClient();
@@ -855,15 +925,38 @@ export default function AppHome() {
     if (authError) throw authError;
 
     const [allLikesResult, allDislikesResult] = await Promise.all([
-      supabase.from("post_likes").select("post_id"),
+      supabase.from("post_likes").select("post_id,user_id"),
       supabase.from("post_dislikes").select("post_id"),
     ]);
 
     if (allLikesResult.error) throw allLikesResult.error;
     if (allDislikesResult.error) throw allDislikesResult.error;
 
+    const likeRows = allLikesResult.data ?? [];
+    const likerIds = [...new Set(likeRows.map((row) => row.user_id))];
+    const likerProfilesResult = likerIds.length > 0
+      ? await supabase.from("profiles").select("id,display_name,username").in("id", likerIds)
+      : { data: [], error: null };
+
+    if (likerProfilesResult.error) throw likerProfilesResult.error;
+
+    const likerProfiles = new Map(
+      (likerProfilesResult.data ?? []).map((profile) => [profile.id, profile])
+    );
+    const likers: Record<number, LikedByUser[]> = {};
+    for (const row of likeRows) {
+      const id = Number(row.post_id);
+      const profile = likerProfiles.get(row.user_id);
+      if (!profile) continue;
+      const username = profile.username?.trim() || null;
+      const name = profile.display_name?.trim() || username?.replace(/^@/, "") || "VYBE member";
+      likers[id] ??= [];
+      likers[id].push({ id: profile.id, name, username });
+    }
+    setLikersByPost(likers);
+
     const counts: Record<number, { likes: number; dislikes: number }> = {};
-    for (const row of allLikesResult.data ?? []) {
+    for (const row of likeRows) {
       const id = Number(row.post_id);
       counts[id] ??= { likes: 0, dislikes: 0 };
       counts[id].likes += 1;
@@ -971,6 +1064,47 @@ export default function AppHome() {
     return () => window.clearTimeout(timer);
   }, [highlightedPost]);
 
+  const toggleFollowAuthor = async (authorId: string) => {
+    if (!currentUserId || currentUserId === authorId || pendingFollowAuthors.includes(authorId)) return;
+
+    setPendingFollowAuthors((current) => [...current, authorId]);
+
+    try {
+      const supabase = createClient();
+      const { data: existingFollow, error: lookupError } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", currentUserId)
+        .eq("following_id", authorId)
+        .maybeSingle();
+
+      if (lookupError) throw lookupError;
+
+      if (existingFollow) {
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", currentUserId)
+          .eq("following_id", authorId);
+        if (error) throw error;
+        setFollowedAuthors((current) => current.filter((id) => id !== authorId));
+      } else {
+        const { error } = await supabase.from("follows").insert({
+          follower_id: currentUserId,
+          following_id: authorId,
+        });
+        if (error) throw error;
+        setFollowedAuthors((current) => current.includes(authorId) ? current : [...current, authorId]);
+      }
+
+      window.dispatchEvent(new Event("project-one-follows-updated"));
+    } catch (error) {
+      console.error("Could not update post author follow:", error);
+    } finally {
+      setPendingFollowAuthors((current) => current.filter((id) => id !== authorId));
+    }
+  };
+
   const toggleLike = async (postId: number) => {
     if (pendingLikePost !== null || !likesLoaded) return;
 
@@ -1024,6 +1158,22 @@ export default function AppHome() {
     } finally {
       setPendingLikePost(null);
     }
+  };
+
+  const handleLikeClick = (postId: number) => {
+    if (!likedPosts.includes(postId)) {
+      playLikePopSound();
+      setPoppingLikePostId(postId);
+      if (likePopTimerRef.current !== null) {
+        window.clearTimeout(likePopTimerRef.current);
+      }
+      likePopTimerRef.current = window.setTimeout(() => {
+        setPoppingLikePostId(null);
+        likePopTimerRef.current = null;
+      }, 360);
+    }
+
+    void toggleLike(postId);
   };
 
   const toggleDislike = async (postId: number) => {
@@ -1790,6 +1940,7 @@ export default function AppHome() {
             const isSaved = savedPosts.includes(post.id);
             const isSavePending = pendingSavePosts.includes(post.id);
             const postComments = allPostComments[post.id] || [];
+            const postLikers = likersByPost[post.id] ?? [];
             const isLikePending = pendingLikePost === post.id;
 
             const postWithOwner = post as typeof post & {
@@ -1928,28 +2079,52 @@ export default function AppHome() {
                 )}
 
                 {post.content && (
-                  <div className="pb-3">
+                  <button type="button" onClick={() => setViewerPostId(post.id)} className="block w-full pb-3 text-left">
                     <p className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-900">
                       {post.content}
                     </p>
-                  </div>
+                  </button>
                 )}
 
                 <MediaDisplay
                   mediaId={post.mediaId}
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
+                  isViewerOpen={viewerPostId === post.id}
+                  onOpenViewer={() => setViewerPostId(post.id)}
+                  onCloseViewer={() => setViewerPostId(null)}
+                  authorName={authorName}
+                  authorUsername={profileUsername.startsWith("@") ? profileUsername : `@${profileUsername}`}
+                  authorAvatarUrl={authorAvatar}
+                  authorProfileUrl={profileUrl}
+                  postContent={post.content}
+                  likesCount={postReactionCounts.likes}
+                  dislikesCount={postReactionCounts.dislikes}
+                  commentsCount={post.comments}
+                  isLiked={isLiked}
+                  isPoppingLike={poppingLikePostId === post.id}
+                  isDisliked={isDisliked}
+                  isSaved={isSaved}
+                  isFollowingAuthor={Boolean(ownerId && followedAuthors.includes(ownerId))}
+                  isFollowPending={Boolean(ownerId && pendingFollowAuthors.includes(ownerId))}
+                  onLike={() => handleLikeClick(post.id)}
+                  onDislike={() => void toggleDislike(post.id)}
+                  onFollow={ownerId && !isOwnPost ? () => void toggleFollowAuthor(ownerId) : undefined}
+                  onComments={() => {
+                    setOpenComments(post.id);
+                    setCommentText("");
+                    window.setTimeout(() => {
+                      document.getElementById(`comments-${post.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }, 100);
+                  }}
+                  onSave={() => void toggleSave(post.id)}
+                  onShare={() => void handleShare(post.id)}
                   onNavigate={(direction) => {
                     const targetIndex =
                       postIndex + (direction === "next" ? 1 : -1);
                     const targetPost = posts[targetIndex];
                     if (!targetPost) return;
-
-                    window.setTimeout(() => {
-                      document
-                        .getElementById(`post-${targetPost.id}`)
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }, 100);
+                    setViewerPostId(targetPost.id);
                   }}
                 />
 
@@ -1963,18 +2138,16 @@ export default function AppHome() {
                   <div className="flex items-center gap-5">
                     <button
                       type="button"
-                      onClick={() => void toggleLike(post.id)}
+                      onClick={() => handleLikeClick(post.id)}
                       disabled={!likesLoaded || isLikePending}
                       aria-label={isLiked ? tr("unlikePost") : tr("likePost")}
                       aria-pressed={isLiked}
                       className={`flex items-center gap-1.5 text-sm transition disabled:opacity-50 ${
-  isLiked
-    ? "text-green-600 hover:text-green-700"
-    : "text-gray-800 hover:text-green-600"
-}`}
+                        isLiked ? "text-amber-300 hover:text-amber-200" : "text-black hover:text-gray-700"
+                      }`}
                     >
-                      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true">
-                        <path d="M1 21h4V9H1v12ZM23 10c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2Z" />
+                      <svg viewBox="0 0 24 24" className={`h-6 w-6 transition-transform duration-300 ease-out ${poppingLikePostId === post.id ? "scale-125 -rotate-12" : "scale-100 rotate-0"}`} fill={isLiked || poppingLikePostId === post.id ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />
                       </svg>
                       <span>{postReactionCounts.likes}</span>
                     </button>
@@ -2081,8 +2254,33 @@ export default function AppHome() {
                   {postReactionCounts.likes} {tr("likes")} · {postReactionCounts.dislikes} dislikes
                 </p>
 
+                {postLikers.length > 0 && (
+                  <p className="mt-1 text-xs leading-5 text-gray-600">
+                    <span className="font-semibold text-gray-800">Liked by </span>
+                    {postLikers.slice(0, 3).map((liker, index) => {
+                      const profileUrl = liker.username
+                        ? `/app/profile?username=${encodeURIComponent(liker.username.replace(/^@/, ""))}`
+                        : null;
+
+                      return (
+                        <Fragment key={liker.id}>
+                          {index > 0 && ", "}
+                          {profileUrl ? (
+                            <Link href={profileUrl} className="font-medium text-gray-800 hover:underline">
+                              {liker.name}
+                            </Link>
+                          ) : (
+                            liker.name
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {postLikers.length > 3 && ` and ${postLikers.length - 3} others`}
+                  </p>
+                )}
+
                 {openComments === post.id && (
-                  <div className="mt-4 border-t border-gray-100 pt-4">
+                  <div id={`comments-${post.id}`} className="mt-4 border-t border-gray-100 pt-4">
                     <div className="space-y-4">
                       {postComments
                         .filter((comment) => !comment.parentCommentId)

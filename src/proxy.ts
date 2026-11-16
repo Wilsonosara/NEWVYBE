@@ -1,35 +1,8 @@
-
 import { type NextRequest, NextResponse } from "next/server";
-import { updateSession } from "../utils/supabase/middleware";
+import { createServerClient } from "@supabase/ssr";
 
 export async function proxy(request: NextRequest) {
-  const response = await updateSession(request);
-
-  const {
-    data: { user },
-  } = await getUserFromSession(request);
-
-  const pathname = request.nextUrl.pathname;
-
-  if (!user && pathname.startsWith("/app")) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
-    loginUrl.search = "";
-    return NextResponse.redirect(loginUrl);
-  }
-
-  if (user && (pathname === "/login" || pathname === "/register")) {
-    const appUrl = request.nextUrl.clone();
-    appUrl.pathname = "/app";
-    appUrl.search = "";
-    return NextResponse.redirect(appUrl);
-  }
-
-  return response;
-}
-
-async function getUserFromSession(request: NextRequest) {
-  const { createServerClient } = await import("@supabase/ssr");
+  let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,12 +12,47 @@ async function getUserFromSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll() {},
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+
+          response = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
       },
     }
   );
 
-  return await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+
+  if (!user && pathname.startsWith("/app")) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    return redirectWithCookies(loginUrl, response);
+  }
+
+  if (user && (pathname === "/login" || pathname === "/register")) {
+    const appUrl = request.nextUrl.clone();
+    appUrl.pathname = "/app";
+    appUrl.search = "";
+    return redirectWithCookies(appUrl, response);
+  }
+
+  return response;
+}
+
+function redirectWithCookies(url: URL, response: NextResponse) {
+  const redirect = NextResponse.redirect(url);
+  response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+  return redirect;
 }
 
 export const config = {
