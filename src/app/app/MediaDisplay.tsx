@@ -310,14 +310,14 @@ export default function MediaDisplay({
               playsInline
               preload="metadata"
               aria-label={mediaName || "Full-screen post video"}
-              className="absolute inset-0 h-full w-full object-cover"
+              className="absolute inset-0 h-full w-full object-contain"
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
             <img
               src={mediaUrl}
               alt={mediaName || "Full-screen post image"}
-              className="absolute inset-0 h-full w-full object-cover"
+              className="absolute inset-0 h-full w-full object-contain"
               onClick={(event) => event.stopPropagation()}
             />
           )}
