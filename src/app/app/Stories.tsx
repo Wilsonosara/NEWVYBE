@@ -15,6 +15,7 @@ type StoryMedia = {
 
 type Story = {
   id: string;
+  ownerId?: string;
   name: string;
   username: string;
   image: string;
@@ -335,6 +336,7 @@ function getUsername(profile?: ProfileRow) {
 
 export default function Stories() {
   const [stories, setStories] = useState<Story[]>([]);
+  const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [reply, setReply] = useState("");
@@ -389,9 +391,20 @@ export default function Stories() {
 
       if (!user) {
         setStories(sampleStories);
+        setFollowingIds([]);
         setLoadingStories(false);
         return;
       }
+
+      const { data: followRows, error: followsError } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", user.id);
+
+      if (followsError) throw followsError;
+
+      const followedIds = (followRows ?? []).map((row) => row.following_id);
+      setFollowingIds(followedIds);
 
       const { data: storyRows, error: storiesError } = await supabase
         .from("stories")
@@ -454,6 +467,7 @@ export default function Stories() {
 
         onlineStories.push({
           id: `user-${userId}`,
+          ownerId: userId,
           name: isOwnStory
             ? personalDetails.name
             : getDisplayName(profile),
@@ -1216,139 +1230,119 @@ export default function Stories() {
     }
   };
 
+  const ownStory = stories.find((story) => story.own);
+  const friendStories = stories.filter((story) => !story.own);
+  const followingStories = friendStories.filter((story) =>
+    followingIds.includes(story.ownerId ?? "")
+  );
+
+  const openStory = (story: Story) => {
+    const index = stories.findIndex((item) => item.id === story.id);
+    if (index < 0) return;
+    setViewerIndex(index);
+    setMediaIndex(0);
+    setPaused(false);
+  };
+
   return (
     <>
-      <section className="overflow-hidden rounded-[28px] border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-green-700">
-              Moments
-            </p>
-            <h2 className="mt-1 text-xl font-black text-gray-950">
-              Stories
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              See what your people are up to.
-            </p>
-          </div>
+      <section className="space-y-6">
+        <div>
+          <h3 className="mb-3 text-lg font-bold text-gray-950">Friends</h3>
+          <div className="flex gap-4 overflow-x-auto pb-1">
+            {loadingStories ? (
+              <div className="py-5 text-sm text-gray-400">Loading stories…</div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => (ownStory ? openStory(ownStory) : openFilePicker())}
+                  disabled={uploading}
+                  className="flex w-[76px] shrink-0 flex-col items-center gap-2 disabled:opacity-60"
+                  aria-label={ownStory ? "View your story" : "Add your story"}
+                >
+                  <span className="relative flex h-[76px] w-[76px] items-center justify-center rounded-full border-[3px] border-dashed border-purple-500 p-1">
+                    {ownStory?.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={ownStory.image} alt="" className="h-full w-full rounded-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center rounded-full bg-gray-100 text-gray-700">
+                        <PlusIcon size={27} />
+                      </span>
+                    )}
+                    {ownStory && (
+                      <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-purple-600 text-white">
+                        <PlusIcon size={16} />
+                      </span>
+                    )}
+                  </span>
+                  <span className="max-w-full truncate text-sm text-gray-800">Your Story</span>
+                </button>
 
-          <span className="rounded-full bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700">
-            24 hours
-          </span>
+                {friendStories.map((story) => (
+                  <button
+                    key={story.id}
+                    type="button"
+                    onClick={() => openStory(story)}
+                    className="flex w-[76px] shrink-0 flex-col items-center gap-2"
+                    aria-label={`View ${story.name}'s story`}
+                  >
+                    <span className="flex h-[76px] w-[76px] rounded-full border-[3px] border-purple-600 p-1">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={story.image} alt="" className="h-full w-full rounded-full object-cover" />
+                    </span>
+                    <span className="max-w-full truncate text-sm text-gray-800">{story.name}</span>
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="flex gap-4 overflow-x-auto pb-2">
-          {loadingStories ? (
-            <div className="flex h-32 w-full items-center justify-center text-sm text-gray-400">
-              Loading stories...
-            </div>
-          ) : (
-            <>
-              {!stories.some(
-                (story) => story.own && getMediaItems(story).length > 0
-              ) && (
-                <div className="w-[112px] shrink-0 sm:w-[126px]">
-                  <button
-                    onClick={openFilePicker}
-                    disabled={uploading}
-                    className="group block w-full overflow-hidden rounded-2xl text-left transition hover:-translate-y-1 disabled:opacity-60"
-                    aria-label="Add your story"
-                  >
-                    <div className="aspect-square overflow-hidden rounded-2xl bg-green-50">
-                      <div className="flex h-full w-full flex-col items-center justify-center text-green-800">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
-                          {uploading ? (
-                            <span className="text-xl">…</span>
-                          ) : (
-                            <PlusIcon size={25} />
-                          )}
-                        </div>
-                        <span className="mt-2 text-xs font-bold">
-                          {uploading ? "Uploading..." : "Add story"}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              )}
-
-              {stories.map((story, index) => {
-                const items = getMediaItems(story);
-                const cover = items[0];
+        <div>
+          <div className="mb-3 flex items-center gap-1">
+            <h3 className="text-lg font-bold text-gray-950">Following</h3>
+            <span aria-hidden="true" className="text-2xl leading-none text-gray-500">›</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {loadingStories ? (
+              <div className="py-5 text-sm text-gray-400">Loading stories…</div>
+            ) : followingStories.length > 0 ? (
+              followingStories.map((story) => {
+                const cover = getMediaItems(story)[0];
 
                 return (
-                  <div
+                  <button
                     key={story.id}
-                    className="w-[112px] shrink-0 sm:w-[126px]"
+                    type="button"
+                    onClick={() => openStory(story)}
+                    className="group relative h-[220px] w-[136px] shrink-0 overflow-hidden rounded-xl bg-gray-200 text-left sm:h-[250px] sm:w-[154px]"
+                    aria-label={`View ${story.name}'s story`}
                   >
-                    <div className="group relative">
-                      <button
-                        onClick={() => {
-                          setViewerIndex(index);
-                          setMediaIndex(0);
-                          setPaused(false);
-                        }}
-                        className="relative block w-full overflow-hidden rounded-2xl text-left transition hover:-translate-y-1"
-                        aria-label={`View ${story.own ? "your" : story.name + "'s"} story`}
-                      >
-                        <div className="aspect-square overflow-hidden rounded-2xl border border-transparent bg-gray-100 group-hover:border-green-500">
-                          {cover ? (
-                            cover.isVideo ? (
-                              <video
-                                src={cover.media}
-                                className="h-full w-full object-cover"
-                                muted
-                                playsInline
-                              />
-                            ) : (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={cover.media}
-                                alt={`${story.name}'s story`}
-                                className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                              />
-                            )
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-green-50 text-green-800">
-                              <PlusIcon size={25} />
-                            </div>
-                          )}
-                        </div>
-
-                        {!story.own && (
-                          <div className="pointer-events-none absolute inset-0 rounded-2xl border-[3px] border-green-500" />
-                        )}
-
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent px-2 pb-2 pt-8">
-                          <p className="truncate text-xs font-bold text-white">
-                            {story.own ? "Your Story" : story.name}
-                            {story.own && items.length > 1 && (
-                              <span> · {items.length}</span>
-                            )}
-                          </p>
-                        </div>
-                      </button>
-
-                      {story.own && cover && (
-                        <button
-                          onClick={openFilePicker}
-                          disabled={uploading}
-                          className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-green-600 text-white shadow hover:bg-green-500 disabled:opacity-60"
-                          aria-label="Add more pictures to Your Story"
-                        >
-                          {uploading ? (
-                            <span className="text-sm">…</span>
-                          ) : (
-                            <PlusIcon size={17} />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                    {cover?.isVideo ? (
+                      <video src={cover.media} className="h-full w-full object-cover" muted playsInline />
+                    ) : cover ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={cover.media} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    ) : (
+                      <div className="h-full w-full bg-gradient-to-br from-amber-200 via-rose-200 to-violet-300" />
+                    )}
+                    <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/10" />
+                    <span className="absolute left-2 top-2 flex h-10 w-10 rounded-full border-2 border-purple-500 p-0.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={story.image} alt="" className="h-full w-full rounded-full object-cover" />
+                    </span>
+                    <span className="absolute inset-x-2 bottom-2 text-left text-white">
+                      <span className="block truncate text-sm font-bold">{story.name}</span>
+                      <span className="block text-xs text-white/85">{formatStoryAge(cover?.createdAt)}</span>
+                    </span>
+                  </button>
                 );
-              })}
-            </>
-          )}
+              })
+            ) : (
+              <p className="py-3 text-sm text-gray-500">Stories from people you follow will appear here.</p>
+            )}
+          </div>
         </div>
 
         <input

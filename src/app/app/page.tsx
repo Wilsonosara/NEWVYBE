@@ -685,7 +685,6 @@ export default function AppHome() {
   const [feedProfilesByUsername, setFeedProfilesByUsername] = useState<
     Record<string, FeedProfile>
   >({});
-  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -776,9 +775,6 @@ export default function AppHome() {
         setFeedProfilesByUsername(profilesByUsername);
         setCurrentUserId(user?.id ?? null);
 
-        setMyAvatarUrl(
-          user?.id ? profilesById[user.id]?.avatar_url ?? null : null
-        );
       } catch (error) {
         console.error("Could not load profile pictures for the feed:", error);
       }
@@ -1871,62 +1867,8 @@ export default function AppHome() {
         </header>
 
         <section className="mb-6 border-b border-gray-100 pb-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-base font-bold">{tr("stories")}</h2>
-            <span className="text-xs text-gray-400">{tr("happening")}</span>
-          </div>
-
           <div className="min-w-0">
             <Stories />
-          </div>
-        </section>
-
-        <section className="mb-6 border-b border-gray-100 pb-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <Link
-              href="/app/profile"
-              aria-label={tr("yourProfile")}
-              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-lg font-bold text-black"
-            >
-              {myAvatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={myAvatarUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                "G"
-              )}
-            </Link>
-
-            <Link
-              href="/app/create"
-              className="flex h-11 min-w-0 flex-1 items-center rounded-full bg-gray-100 px-4 text-sm text-gray-500 transition hover:bg-gray-200"
-            >
-              {tr("sharePlaceholder")}
-            </Link>
-
-            <Link
-              href="/app/create"
-              aria-label={tr("addMedia")}
-              title={tr("addMedia")}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-6 w-6"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="4" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <path d="m21 15-5-5L5 21" />
-              </svg>
-            </Link>
           </div>
         </section>
 
