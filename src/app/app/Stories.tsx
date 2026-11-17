@@ -15,7 +15,6 @@ type StoryMedia = {
 
 type Story = {
   id: string;
-  ownerId?: string;
   name: string;
   username: string;
   image: string;
@@ -276,6 +275,20 @@ function getMediaItems(story: Story): StoryMedia[] {
   return [];
 }
 
+function shuffleStories(stories: Story[]) {
+  const shuffled = [...stories];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [
+      shuffled[randomIndex],
+      shuffled[index],
+    ];
+  }
+
+  return shuffled;
+}
+
 function formatStoryAge(createdAt?: number) {
   if (createdAt === undefined || !Number.isFinite(createdAt)) return "Now";
 
@@ -336,7 +349,7 @@ function getUsername(profile?: ProfileRow) {
 
 export default function Stories() {
   const [stories, setStories] = useState<Story[]>([]);
-  const [followingIds, setFollowingIds] = useState<string[]>([]);
+  const [randomStories, setRandomStories] = useState<Story[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [reply, setReply] = useState("");
@@ -391,20 +404,10 @@ export default function Stories() {
 
       if (!user) {
         setStories(sampleStories);
-        setFollowingIds([]);
+        setRandomStories(shuffleStories(sampleStories));
         setLoadingStories(false);
         return;
       }
-
-      const { data: followRows, error: followsError } = await supabase
-        .from("follows")
-        .select("following_id")
-        .eq("follower_id", user.id);
-
-      if (followsError) throw followsError;
-
-      const followedIds = (followRows ?? []).map((row) => row.following_id);
-      setFollowingIds(followedIds);
 
       const { data: storyRows, error: storiesError } = await supabase
         .from("stories")
@@ -467,7 +470,6 @@ export default function Stories() {
 
         onlineStories.push({
           id: `user-${userId}`,
-          ownerId: userId,
           name: isOwnStory
             ? personalDetails.name
             : getDisplayName(profile),
@@ -509,7 +511,13 @@ export default function Stories() {
         return bTime - aTime;
       });
 
-      setStories([...onlineStories, ...sampleStories]);
+      const allStories = [...onlineStories, ...sampleStories];
+      setStories(allStories);
+      setRandomStories(
+        shuffleStories(
+          allStories.filter((story) => getMediaItems(story).length > 0)
+        )
+      );
 
       if (storyIds.length > 0) {
         const { data: likes, error: likesError } = await supabase
@@ -1232,9 +1240,6 @@ export default function Stories() {
 
   const ownStory = stories.find((story) => story.own);
   const friendStories = stories.filter((story) => !story.own);
-  const followingStories = friendStories.filter((story) =>
-    followingIds.includes(story.ownerId ?? "")
-  );
 
   const openStory = (story: Story) => {
     const index = stories.findIndex((item) => item.id === story.id);
@@ -1289,7 +1294,7 @@ export default function Stories() {
                   >
                     <span className="flex h-[76px] w-[76px] rounded-full border-[3px] border-purple-600 p-1">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={story.image} alt="" className="h-full w-full rounded-full object-cover" />
+                      <img src={story.image} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
                     </span>
                     <span className="max-w-full truncate text-sm text-gray-800">{story.name}</span>
                   </button>
@@ -1301,14 +1306,14 @@ export default function Stories() {
 
         <div>
           <div className="mb-3 flex items-center gap-1">
-            <h3 className="text-lg font-bold text-gray-950">Following</h3>
+            <h3 className="text-lg font-bold text-gray-950">For you</h3>
             <span aria-hidden="true" className="text-2xl leading-none text-gray-500">›</span>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {loadingStories ? (
               <div className="py-5 text-sm text-gray-400">Loading stories…</div>
-            ) : followingStories.length > 0 ? (
-              followingStories.map((story) => {
+            ) : randomStories.length > 0 ? (
+              randomStories.map((story) => {
                 const cover = getMediaItems(story)[0];
 
                 return (
@@ -1323,14 +1328,14 @@ export default function Stories() {
                       <video src={cover.media} className="h-full w-full object-cover" muted playsInline />
                     ) : cover ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={cover.media} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                      <img src={cover.media} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
                     ) : (
                       <div className="h-full w-full bg-gradient-to-br from-amber-200 via-rose-200 to-violet-300" />
                     )}
                     <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/10" />
                     <span className="absolute left-2 top-2 flex h-10 w-10 rounded-full border-2 border-purple-500 p-0.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={story.image} alt="" className="h-full w-full rounded-full object-cover" />
+                      <img src={story.image} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
                     </span>
                     <span className="absolute inset-x-2 bottom-2 text-left text-white">
                       <span className="block truncate text-sm font-bold">{story.name}</span>
@@ -1340,7 +1345,21 @@ export default function Stories() {
                 );
               })
             ) : (
-              <p className="py-3 text-sm text-gray-500">Stories from people you follow will appear here.</p>
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={uploading}
+                className="flex h-[220px] w-[136px] shrink-0 flex-col items-center justify-center gap-3 rounded-xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400 p-4 text-center text-white shadow-sm disabled:opacity-60 sm:h-[250px] sm:w-[154px]"
+                aria-label="Add the first story"
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
+                  <PlusIcon size={27} />
+                </span>
+                <span>
+                  <span className="block text-sm font-bold">No active stories yet</span>
+                  <span className="mt-1 block text-xs text-white/85">Share a story to get started</span>
+                </span>
+              </button>
             )}
           </div>
         </div>
