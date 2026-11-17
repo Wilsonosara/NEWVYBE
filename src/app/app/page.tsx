@@ -1881,24 +1881,6 @@ export default function AppHome() {
           </div>
         </section>
 
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-extrabold tracking-tight">
-              {tr("forYou")}
-            </h1>
-            <p className="mt-1 text-xs text-gray-500">
-              {tr("postsFromWorld")}
-            </p>
-          </div>
-
-          <Link
-            href="/app/explore"
-            className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold transition hover:bg-gray-100"
-          >
-            {tr("discover")}
-          </Link>
-        </div>
-
         {saveStatus && (
           <p
             role="status"
