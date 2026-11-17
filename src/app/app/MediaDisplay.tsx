@@ -7,6 +7,27 @@ import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 import { getMedia } from "../lib/mediaStorage";
 
+let activeViewerScrollLocks = 0;
+let bodyOverflowBeforeViewer = "";
+
+function lockPageScroll() {
+  if (activeViewerScrollLocks === 0) {
+    bodyOverflowBeforeViewer = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+
+  activeViewerScrollLocks += 1;
+
+  return () => {
+    activeViewerScrollLocks = Math.max(0, activeViewerScrollLocks - 1);
+
+    if (activeViewerScrollLocks === 0) {
+      document.body.style.overflow = bodyOverflowBeforeViewer;
+      bodyOverflowBeforeViewer = "";
+    }
+  };
+}
+
 type MediaDisplayProps = {
   mediaId?: string;
   mediaType?: "image" | "video";
@@ -190,10 +211,7 @@ export default function MediaDisplay({
   useEffect(() => {
     if (!isFullscreen) return;
     navigationTriggeredRef.current = false;
-
-    const previousOverflow = document.body.style.overflow;
-
-    document.body.style.overflow = "hidden";
+    const unlockPageScroll = lockPageScroll();
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -210,7 +228,7 @@ export default function MediaDisplay({
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockPageScroll();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [closeViewer, isFullscreen, navigateToPost]);

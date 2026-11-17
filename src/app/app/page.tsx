@@ -1116,7 +1116,7 @@ export default function AppHome() {
     setViewerPostId(postId);
   };
 
-  const closePostViewer = () => {
+  const closePostViewer = useCallback(() => {
     if (viewerTransitionTimerRef.current !== null) {
       window.clearTimeout(viewerTransitionTimerRef.current);
       viewerTransitionTimerRef.current = null;
@@ -1125,7 +1125,16 @@ export default function AppHome() {
     setOutgoingViewerPostId(null);
     setViewerDirection(null);
     setViewerTransitioning(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    const handleHomeNavigation = () => closePostViewer();
+
+    window.addEventListener("project-one-home-navigation", handleHomeNavigation);
+    return () => {
+      window.removeEventListener("project-one-home-navigation", handleHomeNavigation);
+    };
+  }, [closePostViewer]);
 
   const transitionToPost = (
     currentPostId: number,

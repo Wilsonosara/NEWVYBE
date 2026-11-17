@@ -434,6 +434,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
           <div className="flex justify-center border-b border-gray-100 px-2 py-6 dark:border-gray-800">
             <Link
               href="/app"
+              onClick={() => window.dispatchEvent(new Event("project-one-home-navigation"))}
               aria-label="VYBE home"
               title="VYBE"
               className="flex h-12 w-12 items-center justify-center rounded-xl text-xl font-extrabold tracking-tight text-gray-900 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800"
@@ -449,6 +450,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
           >
             <Link
               href="/app"
+              onClick={() => window.dispatchEvent(new Event("project-one-home-navigation"))}
               aria-label={t("home")}
               title={t("home")}
               className={desktopIconClass}
@@ -538,6 +540,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
 
             <Link
               href="/app"
+              onClick={() => window.dispatchEvent(new Event("project-one-home-navigation"))}
               aria-label={t("social")}
               title={t("social")}
               className={worldIconClass}
@@ -560,6 +563,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
           <div className="p-3">
             <Link
               href="/app"
+              onClick={() => window.dispatchEvent(new Event("project-one-home-navigation"))}
               aria-label={t("tagline")}
               title={`${t("yourWorld")} · ${t("yourPeople")} · ${t("yourStory")}`}
               className="flex h-12 w-full items-center justify-center rounded-xl bg-black text-xl font-bold text-white transition hover:bg-gray-800"
@@ -580,6 +584,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
         <div className="mx-auto flex max-w-lg items-center justify-around py-2">
           <Link
             href="/app"
+            onClick={() => window.dispatchEvent(new Event("project-one-home-navigation"))}
             aria-label={t("home")}
             title={t("home")}
             className="flex h-12 w-12 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 hover:text-black active:scale-90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
