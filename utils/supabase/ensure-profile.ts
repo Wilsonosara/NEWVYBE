@@ -21,15 +21,41 @@ export async function ensureProfileForUser(
     .eq("id", user.id)
     .maybeSingle();
 
-  if (lookupError) throw lookupError;
-  if (existingProfile) return existingProfile as ProfileRow;
-
   const metadataName =
     user.user_metadata?.full_name || user.user_metadata?.name || "";
-  const displayName =
+  const savedRealName =
     (typeof metadataName === "string" ? metadataName.trim() : "") ||
     user.email?.split("@")[0] ||
     "VYBE member";
+
+  if (lookupError) throw lookupError;
+
+  if (existingProfile) {
+    const existingName =
+      typeof existingProfile.display_name === "string"
+        ? existingProfile.display_name.trim()
+        : "";
+    const hasGenericName = /^vybe\s+(users?|members?)$/i.test(existingName);
+
+    if ((!existingName || hasGenericName) && savedRealName !== "VYBE member") {
+      const { data: repairedProfile, error: repairError } = await supabase
+        .from("profiles")
+        .update({
+          display_name: savedRealName,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+        .select("id, username, display_name, bio, avatar_url")
+        .single();
+
+      if (repairError) throw repairError;
+      return repairedProfile as ProfileRow;
+    }
+
+    return existingProfile as ProfileRow;
+  }
+
+  const displayName = savedRealName;
   const rawUsername = displayName.toLowerCase().replace(/\s+/g, ".");
   const baseUsername = rawUsername
     .toLowerCase()

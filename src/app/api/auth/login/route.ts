@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { ensureProfileForUser } from "../../../../../utils/supabase/ensure-profile";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -51,6 +52,19 @@ export async function POST(request: Request) {
         ? "Please confirm your email address using the link we sent you before logging in."
         : error.message;
     return NextResponse.json({ error: message }, { status: 401 });
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    try {
+      await ensureProfileForUser(supabase, user);
+    } catch (profileError) {
+      // A profile repair should not prevent a valid sign-in.
+      console.error("Unable to repair account profile name:", profileError);
+    }
   }
 
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

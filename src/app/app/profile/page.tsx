@@ -331,11 +331,11 @@ function ProfilePageContent() {
 
         let profile = loadedProfile;
 
-        if (!profile && !profileLoadError) {
+        if (!profileLoadError) {
           try {
             profile = await ensureProfileForUser(supabase, user);
           } catch (profileCreateError) {
-            console.error("Unable to create missing profile:", profileCreateError);
+            console.error("Unable to create or repair profile:", profileCreateError);
           }
         }
 

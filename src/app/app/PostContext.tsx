@@ -13,6 +13,7 @@ import {
 
 import { type Post, type PostMedia } from "../lib/posts";
 import { createClient } from "../../../utils/supabase/client";
+import { ensureProfileForUser } from "../../../utils/supabase/ensure-profile";
 
 type PostContextType = {
   posts: Post[];
@@ -265,6 +266,12 @@ export function PostProvider({
           }
 
           return;
+        }
+
+        try {
+          await ensureProfileForUser(supabase, user);
+        } catch (profileError) {
+          console.error("Unable to repair signed-in profile name:", profileError);
         }
 
         const { data: blockRows, error: blockError } = await supabase
