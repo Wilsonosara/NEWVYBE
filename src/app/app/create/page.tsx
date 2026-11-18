@@ -403,6 +403,8 @@ function CreatePageContent() {
   const requestedClub = searchParams.get("club")?.trim() || "";
 
   const [post, setPost] = useState("");
+  const [keywordInput, setKeywordInput] = useState("");
+  const [keywords, setKeywords] = useState<string[]>([]);
   const [world, setWorld] = useState("Social");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
@@ -492,7 +494,12 @@ function CreatePageContent() {
     }
 
     if (validImages.length > 0) {
-      setSelectedImages((current) => [...current, ...validImages]);
+      const availableSlots = Math.max(0, 10 - selectedImages.length);
+      const accepted = validImages.slice(0, availableSlots);
+      setSelectedImages((current) => [...current, ...accepted]);
+      if (accepted.length < validImages.length) {
+        setError("You can add up to 10 photos to a post.");
+      }
     }
 
     if (errors.length > 0) {
@@ -553,6 +560,20 @@ function CreatePageContent() {
     }
   }
 
+  function addKeywords(rawValue = keywordInput) {
+    const additions = rawValue
+      .split(/[\s,]+/)
+      .map((value) => value.replace(/^#/, "").trim())
+      .filter(Boolean);
+
+    if (additions.length === 0) return;
+
+    setKeywords((current) =>
+      [...new Set([...current, ...additions])].slice(0, 10)
+    );
+    setKeywordInput("");
+  }
+
   async function handlePost() {
     if (
       !post.trim() &&
@@ -576,8 +597,13 @@ function CreatePageContent() {
             ? [selectedVideo]
             : [];
 
-      await addPost(
+      const postContent = [
         post.trim(),
+        keywords.length ? keywords.map((keyword) => `#${keyword}`).join(" ") : "",
+      ].filter(Boolean).join("\n\n");
+
+      await addPost(
+        postContent,
         world,
         filesToPublish.length > 0 ? filesToPublish : undefined,
         world === "Sports" && requestedClub
@@ -586,6 +612,8 @@ function CreatePageContent() {
       );
 
       setPost("");
+      setKeywords([]);
+      setKeywordInput("");
       setWorld(requestedClub ? "Sports" : "Social");
       clearMedia();
 
@@ -606,41 +634,20 @@ function CreatePageContent() {
     selectedImages.length > 0 || selectedVideo !== null;
 
   return (
-    <main className="min-h-screen bg-white px-4 py-8 text-gray-900 sm:px-6">
+    <main className="min-h-screen bg-[#f1f3fa] px-4 py-7 text-[#273b48] sm:px-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
-        <header className="mb-8">
-          <p className="text-sm font-semibold tracking-tight text-gray-500">
-            VYBE
-          </p>
-
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-gray-950">
-            Create a post
-          </h1>
-
-          <p className="mt-2 text-sm text-gray-500">
-            Share your thoughts, moments, and ideas with your community.
-          </p>
+        <header className="mb-6 sm:mb-8">
+          <p className="text-5xl font-light leading-none tracking-tight text-[#c6cdd2] sm:text-7xl">06</p>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">Create Post</h1>
         </header>
 
-        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-5 sm:px-6">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-800">
-              G
-            </div>
-
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-900">
-                Genius
-              </p>
-              <p className="text-sm text-gray-500">@genius</p>
-            </div>
-
-            <div className="ml-auto rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600">
-              {world}
-            </div>
+        <section className="overflow-hidden rounded-[28px] bg-white p-4 shadow-[0_14px_45px_rgba(39,59,72,0.08)] sm:p-7">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">New post</h2>
+            <span className="rounded-full bg-[#f1f3f8] px-3 py-1.5 text-xs font-semibold text-[#566675]">{world}</span>
           </div>
 
-          <div className="p-5 sm:p-6">
+          <div>
             <label htmlFor="post-content" className="sr-only">
               What would you like to share?
             </label>
@@ -650,42 +657,61 @@ function CreatePageContent() {
               value={post}
               onChange={(event) => setPost(event.target.value)}
               placeholder="What would you like to share?"
-              rows={6}
+              rows={3}
               maxLength={5000}
-              className="min-h-40 w-full resize-y border-0 bg-transparent text-base leading-7 text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0"
+              className="min-h-24 w-full resize-y rounded-2xl bg-[#f1f3f8] px-4 py-4 text-sm leading-6 text-[#273b48] outline-none placeholder:text-[#a9b1ba] focus:ring-2 focus:ring-[#7d80e8]/30 sm:min-h-28 sm:px-5"
             />
 
-            <div className="mt-2 flex items-center justify-between border-b border-gray-100 pb-5">
-              <p className="text-xs text-gray-400">
-                Share something worth sharing.
-              </p>
-
-              <p className="text-xs tabular-nums text-gray-400">
+            <div className="mt-2 flex items-center justify-end pb-2">
+              <p className="text-xs tabular-nums text-[#98a2ad]">
                 {post.length}/5000
               </p>
             </div>
 
-            {selectedImages.length > 0 && (
-              <div className="mt-5">
+            <div className="mt-2">
+              <p className="mb-2 text-sm font-semibold text-[#344957]">Add media</p>
+              <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Media type">
+                <button type="button" onClick={() => photoInputRef.current?.click()} disabled={Boolean(selectedVideo) || isPublishing || selectedImages.length >= 10} className="rounded-full bg-[#eef0f7] px-4 py-2 text-sm font-medium text-[#445563] hover:bg-[#e4e7f2] disabled:opacity-50">Images</button>
+                <button type="button" onClick={() => videoInputRef.current?.click()} disabled={selectedImages.length > 0 || isPublishing} className="rounded-full bg-[#eef0f7] px-4 py-2 text-sm font-medium text-[#445563] hover:bg-[#e4e7f2] disabled:opacity-50">Video</button>
+                <span className="rounded-full px-4 py-2 text-sm text-gray-400" title="Audio posting will be available when VYBE has a music license">Audio</span>
+              </div>
+              <p className="mb-3 text-xs text-[#8996a2]">Choose up to 10 photos or one video · 50 MB max per file</p>
+            </div>
+
+            {(selectedImages.length > 0 || !selectedVideo) && (
+              <div className="mt-4">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-sm font-medium text-gray-800">
-                    Selected photos ({selectedImages.length})
+                    {selectedImages.length > 0 ? `Selected photos (${selectedImages.length})` : "Photos"}
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={clearMedia}
-                    className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
-                  >
-                    Remove all
-                  </button>
+                  {selectedImages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearMedia}
+                      className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
+                    >
+                      Remove all
+                    </button>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                  {selectedImages.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      disabled={Boolean(selectedVideo) || isPublishing}
+                      aria-label="Add another photo"
+                      className="flex aspect-square items-center justify-center rounded-2xl bg-[#f1f3f8] text-3xl font-light text-[#687987] transition hover:bg-[#e8ebf4] disabled:opacity-50"
+                    >
+                      +
+                    </button>
+                  )}
                   {selectedImages.map((file, index) => (
                     <div
                       key={`${file.name}-${file.size}-${index}`}
-                      className="relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50"
+                      className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -743,6 +769,30 @@ function CreatePageContent() {
               </div>
             )}
 
+            <div className="mt-5 rounded-2xl bg-[#f1f3f8] px-4 py-3">
+              <label htmlFor="post-keywords" className="sr-only">Keywords</label>
+              <div className="flex items-center gap-2">
+                <span aria-hidden="true" className="text-[#8a96a1]">⌑</span>
+                <input
+                  id="post-keywords"
+                  value={keywordInput}
+                  onChange={(event) => setKeywordInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === ",") {
+                      event.preventDefault();
+                      addKeywords();
+                    }
+                  }}
+                  onBlur={() => { if (keywordInput.trim()) addKeywords(); }}
+                  placeholder="Keywords · press Enter to add"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[#a9b1ba]"
+                  aria-label="Add post keywords"
+                />
+                {keywordInput.trim() && <button type="button" onClick={() => addKeywords()} className="text-xs font-semibold text-[#7379df]">Add</button>}
+              </div>
+              {keywords.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{keywords.map((keyword) => <button key={keyword} type="button" onClick={() => setKeywords((current) => current.filter((item) => item !== keyword))} className="rounded-full bg-white px-3 py-1 text-xs text-[#566675]">#{keyword} <span aria-hidden="true">×</span></button>)}</div>}
+            </div>
+
             <div className="mt-6">
               <p className="mb-3 text-sm font-medium text-gray-800">
                 Choose a world
@@ -760,8 +810,8 @@ function CreatePageContent() {
                       aria-pressed={isSelected}
                       className={`rounded-full border px-3.5 py-2 text-sm transition ${
                         isSelected
-                          ? "border-gray-900 bg-gray-900 font-medium text-white"
-                          : "border-gray-200 bg-white text-gray-600 hover:border-gray-400 hover:text-gray-900"
+                          ? "border-[#7d80e8] bg-[#7d80e8] font-medium text-white"
+                          : "border-gray-200 bg-white text-gray-600 hover:border-[#7d80e8] hover:text-gray-900"
                       }`}
                     >
                       {item}
@@ -771,7 +821,7 @@ function CreatePageContent() {
               </div>
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-5">
+            <div className="mt-5 flex flex-wrap items-center gap-2">
               <input
                 ref={photoInputRef}
                 type="file"
@@ -793,49 +843,6 @@ function CreatePageContent() {
                 }
               />
 
-              <button
-                type="button"
-                onClick={() => photoInputRef.current?.click()}
-                disabled={Boolean(selectedVideo) || isPublishing}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  className="h-5 w-5"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="3" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <path d="m21 15-5-5L5 21" />
-                </svg>
-                {selectedImages.length > 0
-                  ? "Add more photos"
-                  : "Photo"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => videoInputRef.current?.click()}
-                disabled={selectedImages.length > 0 || isPublishing}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  className="h-5 w-5"
-                >
-                  <rect x="3" y="5" width="13" height="14" rx="2" />
-                  <path d="m16 10 5-3v10l-5-3z" />
-                </svg>
-                Video
-              </button>
-
               {hasMedia && (
                 <span className="max-w-full truncate text-xs text-gray-500">
                   {selectedImages.length > 0
@@ -854,11 +861,7 @@ function CreatePageContent() {
               </div>
             )}
 
-            <div className="mt-6 flex flex-col-reverse gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-gray-400">
-                Your post will appear in the selected world.
-              </p>
-
+            <div className="mt-6">
               <button
                 type="button"
                 onClick={handlePost}
@@ -866,7 +869,7 @@ function CreatePageContent() {
                   isPublishing ||
                   (!post.trim() && !hasMedia)
                 }
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gray-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#7d80e8] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6f72d9] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isPublishing && (
                   <svg
