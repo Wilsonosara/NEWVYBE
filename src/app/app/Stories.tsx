@@ -26,6 +26,31 @@ type Story = {
   createdAt: number;
 };
 
+const FRIEND_STORY_SHAPES = [
+  "circle",
+  "triangle",
+  "circle",
+  "inverted-triangle",
+  "circle",
+  "rectangle",
+] as const;
+
+function getFriendStoryShape(index: number) {
+  return FRIEND_STORY_SHAPES[index % FRIEND_STORY_SHAPES.length];
+}
+
+function getFriendStoryClipPath(shape: (typeof FRIEND_STORY_SHAPES)[number]) {
+  if (shape === "triangle") return "polygon(50% 0%, 100% 100%, 0% 100%)";
+  if (shape === "inverted-triangle") return "polygon(0% 0%, 100% 0%, 50% 100%)";
+  return undefined;
+}
+
+function getFriendStoryShapeClasses(shape: (typeof FRIEND_STORY_SHAPES)[number]) {
+  if (shape === "circle") return "rounded-full";
+  if (shape === "rectangle") return "rounded-md";
+  return "";
+}
+
 type StoryRow = {
   id: string;
   user_id: string;
@@ -1259,46 +1284,72 @@ export default function Stories() {
               <div className="py-5 text-sm text-gray-400">Loading stories…</div>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => (ownStory ? openStory(ownStory) : openFilePicker())}
-                  disabled={uploading}
-                  className="flex w-[76px] shrink-0 flex-col items-center gap-2 disabled:opacity-60"
-                  aria-label={ownStory ? "View your story" : "Add your story"}
-                >
-                  <span className="relative flex h-[76px] w-[76px] items-center justify-center rounded-full border-[3px] border-dashed border-purple-500 p-1">
-                    {ownStory?.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={ownStory.image} alt="" className="h-full w-full rounded-full object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center rounded-full bg-gray-100 text-gray-700">
-                        <PlusIcon size={27} />
-                      </span>
-                    )}
-                    {ownStory && (
-                      <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-purple-600 text-white">
-                        <PlusIcon size={16} />
-                      </span>
-                    )}
-                  </span>
-                  <span className="max-w-full truncate text-sm text-gray-800">Your Story</span>
-                </button>
-
-                {friendStories.map((story) => (
+                <div className="relative w-[76px] shrink-0">
                   <button
-                    key={story.id}
                     type="button"
-                    onClick={() => openStory(story)}
-                    className="flex w-[76px] shrink-0 flex-col items-center gap-2"
-                    aria-label={`View ${story.name}'s story`}
+                    onClick={() => (ownStory ? openStory(ownStory) : openFilePicker())}
+                    disabled={uploading}
+                    className="flex w-full flex-col items-center gap-2 disabled:opacity-60"
+                    aria-label={ownStory ? "View your story" : "Add your story"}
                   >
-                    <span className="flex h-[76px] w-[76px] rounded-full border-[3px] border-purple-600 p-1">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={story.image} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
+                    <span className="flex h-[76px] w-[76px] items-center justify-center rounded-full border-[3px] border-dashed border-purple-500 p-1">
+                      {ownStory?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={ownStory.image} alt="" className="h-full w-full rounded-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center rounded-full bg-gray-100 text-gray-700">
+                          <PlusIcon size={27} />
+                        </span>
+                      )}
                     </span>
-                    <span className="max-w-full truncate text-sm text-gray-800">{story.name}</span>
+                    <span className="max-w-full truncate text-sm text-gray-800">Your Story</span>
                   </button>
-                ))}
+                  {ownStory && (
+                    <button
+                      type="button"
+                      onClick={openFilePicker}
+                      disabled={uploading}
+                      className="absolute right-0 top-[48px] flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-purple-600 text-white disabled:opacity-60"
+                      aria-label="Add to your story"
+                      title="Add to your story"
+                    >
+                      <PlusIcon size={16} />
+                    </button>
+                  )}
+                </div>
+
+                {friendStories.map((story, index) => {
+                  const shape = getFriendStoryShape(index + 1);
+                  const shapeClasses = getFriendStoryShapeClasses(shape);
+                  const clipPath = getFriendStoryClipPath(shape);
+
+                  return (
+                    <button
+                      key={story.id}
+                      type="button"
+                      onClick={() => openStory(story)}
+                      className="flex w-[76px] shrink-0 flex-col items-center gap-2"
+                      aria-label={`View ${story.name}'s story`}
+                    >
+                      <span className="flex h-[76px] w-[76px] items-center justify-center">
+                        <span
+                          className={`flex ${shape === "rectangle" ? "h-[60px] w-full" : "h-full w-full"} overflow-hidden border-[3px] border-purple-600 p-1 ${shapeClasses}`}
+                          style={clipPath ? { clipPath } : undefined}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={story.image}
+                            alt=""
+                            loading="lazy"
+                            className={`h-full w-full object-cover ${shapeClasses}`}
+                            style={clipPath ? { clipPath } : undefined}
+                          />
+                        </span>
+                      </span>
+                      <span className="max-w-full truncate text-sm text-gray-800">{story.name}</span>
+                    </button>
+                  );
+                })}
               </>
             )}
           </div>
