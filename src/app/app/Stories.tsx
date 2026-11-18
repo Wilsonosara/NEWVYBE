@@ -1333,17 +1333,21 @@ export default function Stories() {
                     >
                       <span className="flex h-[76px] w-[76px] items-center justify-center">
                         <span
-                          className={`flex ${shape === "rectangle" ? "h-[60px] w-full" : "h-full w-full"} overflow-hidden border-[3px] border-purple-600 p-1 ${shapeClasses}`}
+                          className={`relative block ${shape === "rectangle" ? "h-full w-[60px]" : "h-full w-full"} overflow-hidden bg-purple-600 ${shapeClasses}`}
                           style={clipPath ? { clipPath } : undefined}
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={story.image}
-                            alt=""
-                            loading="lazy"
-                            className={`h-full w-full object-cover ${shapeClasses}`}
+                          <span
+                            className={`absolute inset-[3px] overflow-hidden bg-white ${shapeClasses}`}
                             style={clipPath ? { clipPath } : undefined}
-                          />
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={story.image}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                            />
+                          </span>
                         </span>
                       </span>
                       <span className="max-w-full truncate text-sm text-gray-800">{story.name}</span>
