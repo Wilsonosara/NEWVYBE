@@ -2052,7 +2052,7 @@ export default function AppHome() {
   return (
     <main className="min-h-screen min-w-0 bg-white text-black">
       <div className="mx-auto w-full max-w-2xl min-w-0 px-3 pb-6 pt-3 sm:px-5 sm:pt-5">
-        <header className="mb-5 flex items-center justify-between border-b border-gray-100 pb-4">
+        <header className="mb-3 flex items-center justify-between border-b border-gray-100 pb-2">
           <Link href="/app" className="text-2xl font-black tracking-tight">
             VYBE<span className="text-gray-400">.</span>
           </Link>
