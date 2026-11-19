@@ -372,7 +372,7 @@ export default function MediaDisplay({
   return (
     <>
       {hasMedia && <>
-      <div className="relative mb-2 w-full touch-pan-y overflow-hidden bg-black sm:rounded-xl" onTouchStart={(event) => { const touch = event.touches[0]; previewTouchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null; previewSwipeHandledRef.current = false; }} onTouchMove={handlePreviewTouchMove} onTouchEnd={handlePreviewTouchEnd}>
+      <div className={`relative mb-2 w-full touch-pan-y overflow-hidden bg-black sm:rounded-xl ${hasCarousel ? "aspect-[4/5] max-h-[85vh]" : ""}`} onTouchStart={(event) => { const touch = event.touches[0]; previewTouchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null; previewSwipeHandledRef.current = false; }} onTouchMove={handlePreviewTouchMove} onTouchEnd={handlePreviewTouchEnd}>
         {activeMediaType === "video" ? (
           <video
             key={activeMediaId}
@@ -382,21 +382,21 @@ export default function MediaDisplay({
             preload="metadata"
             aria-label={activeMediaName || "Post video"}
             onClick={openViewerFromPreview}
-            className={`block max-h-[85vh] w-full cursor-pointer object-contain ${mediaSwipeClass}`}
+            className={`block ${hasCarousel ? "h-full w-full object-contain" : "max-h-[85vh] w-full object-contain"} cursor-pointer ${mediaSwipeClass}`}
           />
         ) : (
           <button
             type="button"
             onClick={openViewerFromPreview}
             aria-label="Open image full screen"
-            className="block w-full cursor-zoom-in bg-white p-0"
+            className={`block cursor-zoom-in bg-black p-0 ${hasCarousel ? "absolute inset-0 h-full w-full" : "w-full"}`}
           >
             <img
               key={activeMediaId}
               src={mediaUrl}
               alt={activeMediaName || "Post image"}
               loading="lazy"
-              className={`block h-auto max-h-[85vh] w-full object-contain ${mediaSwipeClass}`}
+              className={`block ${hasCarousel ? "h-full w-full object-contain" : "h-auto max-h-[85vh] w-full object-contain"} ${mediaSwipeClass}`}
             />
           </button>
         )}
@@ -475,7 +475,7 @@ export default function MediaDisplay({
               playsInline
               preload="metadata"
               aria-label={activeMediaName || "Full-screen post video"}
-              className={`absolute inset-0 h-full w-full object-contain ${mediaSwipeClass}`}
+              className={`${hasCarousel ? "absolute left-1/2 top-1/2 aspect-[4/5] w-[min(90vw,68vh)] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 object-contain" : "absolute inset-0 h-full w-full object-contain"} ${mediaSwipeClass}`}
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
@@ -483,7 +483,7 @@ export default function MediaDisplay({
               key={activeMediaId}
               src={mediaUrl}
               alt={activeMediaName || "Full-screen post image"}
-              className={`absolute inset-0 h-full w-full object-contain ${mediaSwipeClass}`}
+              className={`${hasCarousel ? "absolute left-1/2 top-1/2 aspect-[4/5] w-[min(90vw,68vh)] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 object-contain" : "absolute inset-0 h-full w-full object-contain"} ${mediaSwipeClass}`}
               onClick={(event) => event.stopPropagation()}
             />
           )}
