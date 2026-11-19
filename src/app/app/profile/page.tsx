@@ -1279,8 +1279,8 @@ function ProfilePageContent() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-2xl bg-white px-3 pb-24 text-gray-900 sm:px-5">
-      <header className="flex items-center justify-between border-b border-gray-100 py-2">
-        <Link href="/app" className="text-lg font-extrabold tracking-tight text-black">
+      <header className="flex items-center justify-between border-b border-gray-100 py-1.5">
+        <Link href="/app" className="text-base font-extrabold tracking-tight text-black">
           VYBE<span className="text-[#7d22ef]">.</span>
         </Link>
 
@@ -1291,15 +1291,15 @@ function ProfilePageContent() {
                 href="/app/settings"
                 aria-label="Settings"
                 title="Settings"
-                className="flex h-16 w-16 items-center justify-center rounded-full text-gray-900 transition hover:bg-purple-50"
+                className="flex h-12 w-12 items-center justify-center rounded-full text-gray-900 transition hover:bg-purple-50"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
                   <path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a7.8 7.8 0 0 1-1.7 1l-.3 1.8h-2.8l-.3-1.8a7.8 7.8 0 0 1-1.7-1l-1.7.7-1.4-2.4 1.4-1.1a7.4 7.4 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a7.8 7.8 0 0 1 1.7-1l.3-1.8h2.8l.3 1.8a7.8 7.8 0 0 1 1.7 1l1.7-.7 1.4 2.4-1.4 1.1a7.4 7.4 0 0 1 0 2Z" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </Link>
               <details className="relative">
-                <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full text-lg text-gray-700 hover:bg-purple-50" aria-label="More profile actions">⋮</summary>
+                <summary className="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded-full text-base text-gray-700 hover:bg-purple-50" aria-label="More profile actions">⋮</summary>
                 <button type="button" onClick={handleLogout} disabled={loggingOut} className="absolute right-0 top-6 z-20 whitespace-nowrap rounded-xl border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium shadow-lg disabled:opacity-60">
                   {loggingOut ? "Logging out..." : "Log out"}
                 </button>
@@ -1327,9 +1327,9 @@ function ProfilePageContent() {
         </p>
       )}
 
-      <section className="relative mt-3 bg-white px-2 pb-5 pt-1 sm:px-5">
-        <div className="relative h-[100px] sm:h-[114px]">
-          <div className="absolute left-0 top-0 h-[92px] w-[92px] rounded-full bg-white p-[4px] shadow-[0_0_0_3px_#7d22ef] sm:h-[106px] sm:w-[106px]">
+      <section className="relative mt-2 bg-white px-2 pb-4 pt-1 sm:px-5">
+        <div className="relative h-[88px] sm:h-[98px]">
+          <div className="absolute left-0 top-0 h-[80px] w-[80px] rounded-full bg-white p-[4px] shadow-[0_0_0_3px_#7d22ef] sm:h-[92px] sm:w-[92px]">
             <Avatar src={displayedAvatarUrl} name={displayedName} className="h-full w-full rounded-full border-[3px] border-white bg-gray-200" />
             {isOwnProfile && (
               <button
@@ -1367,41 +1367,41 @@ function ProfilePageContent() {
                 setProfileMessage("");
                 setEditing(true);
               }}
-              className="absolute right-0 top-6 inline-flex items-center gap-2 rounded-full border border-[#ddddea] px-4 py-2.5 text-sm font-semibold text-gray-900 transition hover:border-[#7d22ef] hover:bg-purple-50 sm:px-6"
+              className="absolute right-0 top-5 inline-flex items-center gap-1.5 rounded-full border border-[#ddddea] px-3 py-2 text-xs font-semibold text-gray-900 transition hover:border-[#7d22ef] hover:bg-purple-50 sm:px-5"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true"><path d="m4 16.5-.8 4.3 4.3-.8L19.7 7.8a2.1 2.1 0 0 0-3-3L4 16.5Z" strokeLinejoin="round"/><path d="m14.9 6.6 3 3"/></svg>
               Edit Profile
             </button>
           ) : displayedProfile ? (
-            <button type="button" onClick={handleFollow} disabled={followBusy || !currentUserId} className="absolute right-0 top-6 rounded-full border border-[#ddddea] px-5 py-2.5 text-sm font-semibold text-gray-900 transition hover:bg-purple-50 disabled:opacity-60">
+            <button type="button" onClick={handleFollow} disabled={followBusy || !currentUserId} className="absolute right-0 top-5 rounded-full border border-[#ddddea] px-4 py-2 text-xs font-semibold text-gray-900 transition hover:bg-purple-50 disabled:opacity-60">
               {followBusy ? "Please wait..." : isFollowing ? "Following" : "Follow"}
             </button>
           ) : null}
         </div>
 
-        <h1 className="truncate text-3xl font-extrabold tracking-tight text-black sm:text-4xl">{displayedName}</h1>
-        <p className="mt-1 truncate text-lg font-medium text-[#69758c] sm:text-xl">{displayedUsername}</p>
+        <h1 className="truncate text-2xl font-extrabold tracking-tight text-black sm:text-3xl">{displayedName}</h1>
+        <p className="mt-1 truncate text-base font-medium text-[#69758c] sm:text-lg">{displayedUsername}</p>
 
-        {displayedBio && <p className="mt-1.5 max-w-2xl whitespace-pre-wrap text-base leading-6 text-gray-900">{displayedBio}</p>}
+        {displayedBio && <p className="mt-1.5 max-w-2xl whitespace-pre-wrap text-sm leading-5 text-gray-900">{displayedBio}</p>}
 
         {followError && <p role="alert" className="mt-2 text-xs text-red-600">{followError}</p>}
 
-        <div className="mt-3 grid grid-cols-3 divide-x divide-[#d9ddea]">
-          <div className="px-2 text-center"><p className="text-xl font-bold leading-6 tabular-nums sm:text-2xl">{profilePosts.length}</p><p className="mt-1 text-sm text-[#69758c] sm:text-base">Posts</p></div>
-          <div className="px-2 text-center"><p className="text-xl font-bold leading-6 tabular-nums sm:text-2xl">{followersCount}</p><p className="mt-1 text-sm text-[#69758c] sm:text-base">Followers</p></div>
-          <div className="px-2 text-center"><p className="text-xl font-bold leading-6 tabular-nums sm:text-2xl">{followingCount}</p><p className="mt-1 text-sm text-[#69758c] sm:text-base">Following</p></div>
+        <div className="mt-2.5 grid grid-cols-3 divide-x divide-[#d9ddea]">
+          <div className="px-2 text-center"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{profilePosts.length}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Posts</p></div>
+          <div className="px-2 text-center"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{followersCount}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Followers</p></div>
+          <div className="px-2 text-center"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{followingCount}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Following</p></div>
         </div>
 
-        <div className="mt-5">
-          <h2 className="mb-3 text-base font-bold text-gray-900">Highlights</h2>
+        <div className="mt-4">
+          <h2 className="mb-2 text-sm font-bold text-gray-900">Highlights</h2>
           {profileHighlights.length ? (
-            <div className="flex gap-3 overflow-x-auto pb-1">
+            <div className="flex gap-2 overflow-x-auto pb-1">
               {profileHighlights.map((highlight) => (
                 <button
                   key={highlight.id}
                   type="button"
                   onClick={() => { setOpenedProfileHighlight(highlight); setProfileHighlightIndex(0); }}
-                  className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#7d22ef] bg-gradient-to-br from-purple-200 to-violet-700 p-1"
+                  className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-[#7d22ef] bg-gradient-to-br from-purple-200 to-violet-700 p-1"
                   aria-label={`Open highlight: ${highlight.title}`}
                 >
                   <span className="block h-full w-full overflow-hidden rounded-full bg-white">
