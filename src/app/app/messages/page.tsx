@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage, type Language } from "../LanguageProvider";
 import { useOnlinePresence } from "../PresenceProvider";
+import { useDirectCall } from "./useDirectCall";
 
 type Profile = {
   id: string;
@@ -29,6 +30,7 @@ type MessageParts = {
   text: string;
   imageUrl: string | null;
   postId: string | null;
+  audioPath: string | null;
 };
 
 type MessageNotification = {
@@ -100,6 +102,21 @@ const translations: Record<Language, Record<string, string>> = {
     unblockFirst: "You have blocked this account. Unblock it to resume messaging.",
     maxLength: "Messages must be 5,000 characters or fewer.",
     sessionLogin: "Your session has expired. Please log in again.",
+    audioMessage: "Voice message",
+    recordVoice: "Record voice message",
+    stopRecording: "Stop recording",
+    recordingVoice: "Recording voice message…",
+    removeRecording: "Remove recording",
+    call: "Start voice call",
+    incomingCall: "Incoming voice call",
+    calling: "Calling",
+    connectingCall: "Connecting call…",
+    activeCall: "Voice call in progress",
+    answerCall: "Answer",
+    declineCall: "Decline",
+    endCall: "End call",
+    noConversations: "No conversations yet",
+    searchToStart: "Search for someone to start a private conversation.",
   },
   fr: {
     title: "Messages",
@@ -530,11 +547,13 @@ function getMessageParts(content: string): MessageParts {
   const relativePostUrl = content.match(
     /\/app\?[^ \n]*\bpost=(\d+)(?:[&#][^\s]*)?/
   );
+  const audioMarker = content.match(/\[\[VYBE_DIRECT_AUDIO:([^\]]+)\]\]/);
 
   const postId =
     postMarker?.[1] ?? postUrl?.[1] ?? relativePostUrl?.[1] ?? null;
 
   const text = content
+    .replace(/\n?\[\[VYBE_DIRECT_AUDIO:[^\]]+\]\]/, "")
     .replace(/\n?\[\[PROJECT_ONE_SHARED_IMAGE:https?:\/\/[^\]]+\]\]/, "")
     .replace(/\n?\[\[PROJECT_ONE_SHARED_POST:\d+\]\]/, "")
     .trim();
@@ -543,6 +562,7 @@ function getMessageParts(content: string): MessageParts {
     text,
     imageUrl: imageMarker?.[1] ?? null,
     postId,
+    audioPath: audioMarker?.[1] ?? null,
   };
 }
 
@@ -627,6 +647,9 @@ export default function MessagesPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
+  const [recordingVoice, setRecordingVoice] = useState(false);
+  const [voiceMessageFile, setVoiceMessageFile] = useState<File | null>(null);
+  const [voiceMessageUrl, setVoiceMessageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -634,6 +657,12 @@ export default function MessagesPage() {
   const [now, setNow] = useState(() => Date.now());
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceMessageUrlRef = useRef<string | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const { call: directCall, callError, remoteStream, startCall, answerCall, endCall } = useDirectCall(supabase, myId);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -904,6 +933,9 @@ export default function MessagesPage() {
       (item.sender_id === myId && item.recipient_id === selectedUserId) ||
       (item.sender_id === selectedUserId && item.recipient_id === myId)
   );
+  const callPeerProfile = directCall
+    ? profiles.find((profile) => profile.id === directCall.peerId)
+    : undefined;
 
   const conversations = useMemo(() => {
     return profiles
@@ -927,7 +959,7 @@ export default function MessagesPage() {
       .filter(({ profile, latest }) => {
         const query = search.trim().toLowerCase();
 
-        if (!query) return true;
+        if (!query) return Boolean(latest);
 
         return (
           (profile.display_name ?? "").toLowerCase().includes(query) ||
@@ -942,6 +974,19 @@ export default function MessagesPage() {
         return bTime - aTime;
       });
   }, [profiles, messages, myId, search, unreadByUser, blockedIds]);
+
+  useEffect(() => {
+    const audio = remoteAudioRef.current;
+    if (!audio) return;
+    audio.srcObject = remoteStream;
+    if (remoteStream) void audio.play().catch(() => undefined);
+  }, [remoteStream]);
+
+  useEffect(() => () => {
+    if (voiceRecorderRef.current?.state === "recording") voiceRecorderRef.current.stop();
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    if (voiceMessageUrlRef.current) URL.revokeObjectURL(voiceMessageUrlRef.current);
+  }, []);
 
   function displayName(profile: Profile) {
     return (
@@ -1054,7 +1099,7 @@ export default function MessagesPage() {
 
     const content = message.trim();
 
-    if (!selectedUserId || !content || sending) return;
+    if (!selectedUserId || (!content && !voiceMessageFile) || sending) return;
 
     if (hasBlockedSelectedUser) {
       setError(t("unblockFirst"));
@@ -1068,6 +1113,7 @@ export default function MessagesPage() {
 
     setSending(true);
     setError("");
+    let uploadedAudioPath: string | null = null;
 
     try {
       const { data: authData, error: authError } =
@@ -1079,24 +1125,106 @@ export default function MessagesPage() {
         throw new Error(t("sessionLogin"));
       }
 
+      let storedContent = content;
+      if (voiceMessageFile) {
+        const extension = voiceMessageFile.type.includes("mp4") ? "m4a" : "webm";
+        uploadedAudioPath = `${myId}/messages/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from("post-media")
+          .upload(uploadedAudioPath, voiceMessageFile, {
+            upsert: false,
+            contentType: voiceMessageFile.type || "audio/webm",
+          });
+        if (uploadError) throw uploadError;
+        storedContent = [`[[VYBE_DIRECT_AUDIO:${uploadedAudioPath}]]`, content].filter(Boolean).join("\n");
+      }
+
       const { error: insertError } = await supabase
         .from("direct_messages")
         .insert({
           sender_id: myId,
           recipient_id: selectedUserId,
-          content,
+          content: storedContent,
         });
 
       if (insertError) throw insertError;
 
       setMessage("");
+      if (voiceMessageUrlRef.current) URL.revokeObjectURL(voiceMessageUrlRef.current);
+      voiceMessageUrlRef.current = null;
+      setVoiceMessageUrl(null);
+      setVoiceMessageFile(null);
       await loadData(myId);
     } catch (err) {
+      if (uploadedAudioPath) {
+        await supabase.storage.from("post-media").remove([uploadedAudioPath]);
+      }
       console.error("Could not send message:", err);
       setError(getFriendlyMessageError(err, t));
     } finally {
       setSending(false);
     }
+  }
+
+  async function startVoiceRecording() {
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("Voice messages are not supported in this browser.");
+      return;
+    }
+    try {
+      if (voiceMessageUrlRef.current) URL.revokeObjectURL(voiceMessageUrlRef.current);
+      voiceMessageUrlRef.current = null;
+      setVoiceMessageUrl(null);
+      setVoiceMessageFile(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) voiceChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (blob.size > 0) {
+          const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+          setVoiceMessageFile(new File([blob], `voice-message.${extension}`, { type: blob.type }));
+          const previewUrl = URL.createObjectURL(blob);
+          voiceMessageUrlRef.current = previewUrl;
+          setVoiceMessageUrl(previewUrl);
+        } else {
+          setError("No audio was captured. Please record again.");
+        }
+        voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+        voiceRecorderRef.current = null;
+        setRecordingVoice(false);
+      };
+      recorder.onerror = () => {
+        setError("Recording stopped unexpectedly. Please try again.");
+        voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+        voiceRecorderRef.current = null;
+        setRecordingVoice(false);
+      };
+      recorder.start();
+      setRecordingVoice(true);
+    } catch (recordError) {
+      setError(recordError instanceof Error ? recordError.message : "Could not start voice recording.");
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (voiceRecorderRef.current?.state === "recording") voiceRecorderRef.current.stop();
+  }
+
+  function clearVoiceMessage() {
+    if (voiceMessageUrlRef.current) URL.revokeObjectURL(voiceMessageUrlRef.current);
+    voiceMessageUrlRef.current = null;
+    setVoiceMessageUrl(null);
+    setVoiceMessageFile(null);
   }
 
   return (
@@ -1168,6 +1296,8 @@ export default function MessagesPage() {
                         ? t("sharedImage")
                         : latestParts?.postId
                           ? t("sharedPost")
+                          : latestParts?.audioPath
+                            ? t("audioMessage")
                           : "")
                     : `${usernameLabel(profile)} · ${t("startConversation")}`;
 
@@ -1268,10 +1398,10 @@ export default function MessagesPage() {
             ) : (
               <div className="px-6 py-12 text-center">
                 <p className="text-sm font-semibold text-gray-800">
-                  {search ? t("noUsers") : t("noOtherUsers")}
+                  {search ? t("noUsers") : t("noConversations")}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-gray-500">
-                  {search ? t("tryAnother") : t("otherUsers")}
+                  {search ? t("tryAnother") : t("searchToStart")}
                 </p>
               </div>
             )}
@@ -1353,6 +1483,19 @@ export default function MessagesPage() {
                     </p>
                   )}
                 </div>
+                {currentMessages.length > 0 && !hasBlockedSelectedUser && !directCall && (
+                  <button
+                    type="button"
+                    onClick={() => void startCall(selectedProfile.id, displayName(selectedProfile))}
+                    aria-label={t("call")}
+                    title={t("call")}
+                    className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5.5 4.5h3l1.5 4-2 1.5a14 14 0 0 0 6 6l1.5-2 4 1.5v3A2 2 0 0 1 17.4 20C10 19.6 4.4 14 4 6.6a2 2 0 0 1 1.5-2.1Z" />
+                    </svg>
+                  </button>
+                )}
               </header>
 
               {hasBlockedSelectedUser ? (
@@ -1509,6 +1652,15 @@ export default function MessagesPage() {
                                     className="mt-2 max-h-80 w-full rounded-xl object-contain"
                                   />
                                 )}
+                                {messageParts.audioPath && (
+                                  <audio
+                                    controls
+                                    preload="metadata"
+                                    src={supabase.storage.from("post-media").getPublicUrl(messageParts.audioPath).data.publicUrl}
+                                    aria-label={t("audioMessage")}
+                                    className="mt-2 max-w-full"
+                                  />
+                                )}
                               </div>
 
                               <p
@@ -1561,11 +1713,42 @@ export default function MessagesPage() {
                         {error}
                       </p>
                     )}
+                    {callError && (
+                      <p role="alert" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        {callError}
+                      </p>
+                    )}
+                    {recordingVoice && (
+                      <p role="status" className="mb-2 text-xs font-medium text-red-600">{t("recordingVoice")}</p>
+                    )}
+                    {voiceMessageUrl && (
+                      <div className="mb-3 flex items-center gap-2 rounded-xl bg-gray-50 p-2">
+                        <audio controls src={voiceMessageUrl} aria-label={t("audioMessage")} className="min-w-0 flex-1" />
+                        <button type="button" onClick={clearVoiceMessage} aria-label={t("removeRecording")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-200" title={t("removeRecording")}>×</button>
+                      </div>
+                    )}
 
                     <form
                       onSubmit={sendMessage}
                       className="flex items-end gap-2 sm:gap-3"
                     >
+                      <button
+                        type="button"
+                        onClick={() => recordingVoice ? stopVoiceRecording() : void startVoiceRecording()}
+                        disabled={sending || hasBlockedSelectedUser}
+                        aria-label={recordingVoice ? t("stopRecording") : t("recordVoice")}
+                        title={recordingVoice ? t("stopRecording") : t("recordVoice")}
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition disabled:opacity-50 ${recordingVoice ? "border-red-200 bg-red-50 text-red-600" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
+                      >
+                        {recordingVoice ? (
+                          <span className="h-3.5 w-3.5 rounded-sm bg-current" />
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <rect x="9" y="2" width="6" height="12" rx="3" />
+                            <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />
+                          </svg>
+                        )}
+                      </button>
                       <textarea
                         value={message}
                         onChange={(event) => setMessage(event.target.value)}
@@ -1588,7 +1771,7 @@ export default function MessagesPage() {
 
                       <button
                         type="submit"
-                        disabled={!message.trim() || sending}
+                        disabled={(!message.trim() && !voiceMessageFile) || recordingVoice || sending}
                         aria-label={t("sendMessage")}
                         title={t("sendMessage")}
                         className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-[#f3f3f1] text-gray-800 transition hover:bg-[#eaeae7] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
@@ -1691,6 +1874,26 @@ export default function MessagesPage() {
           className="border-t border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
         >
           {error}
+        </div>
+      )}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" aria-label={t("activeCall")} />
+      {directCall && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label={t(directCall.status === "incoming" ? "incomingCall" : directCall.status === "active" ? "activeCall" : "calling")}>
+          <section className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+              <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5.5 4.5h3l1.5 4-2 1.5a14 14 0 0 0 6 6l1.5-2 4 1.5v3A2 2 0 0 1 17.4 20C10 19.6 4.4 14 4 6.6a2 2 0 0 1 1.5-2.1Z" />
+              </svg>
+            </div>
+            <h2 className="mt-4 text-lg font-bold text-gray-950">{callPeerProfile ? displayName(callPeerProfile) : directCall.peerName}</h2>
+            <p className="mt-1 text-sm text-gray-500">{t(directCall.status === "incoming" ? "incomingCall" : directCall.status === "active" ? "activeCall" : directCall.status === "connecting" ? "connectingCall" : "calling")}</p>
+            <div className="mt-6 flex justify-center gap-3">
+              {directCall.status === "incoming" && (
+                <button type="button" onClick={() => void answerCall()} className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-700">{t("answerCall")}</button>
+              )}
+              <button type="button" onClick={() => void endCall(directCall.status === "incoming" ? "decline" : "end")} className="rounded-full bg-red-600 px-6 py-3 text-sm font-semibold text-white hover:bg-red-700">{t(directCall.status === "incoming" ? "declineCall" : "endCall")}</button>
+            </div>
+          </section>
         </div>
       )}
     </div>
