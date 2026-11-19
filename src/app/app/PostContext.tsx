@@ -106,6 +106,24 @@ type UploadedMedia = {
 const PostContext = createContext<PostContextType | null>(null);
 const VOICE_COMMENT_PREFIX = "__VYBE_AUDIO__:";
 
+function isVideoUpload(file: File) {
+  return file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|avi|mpeg|mpeg1|mpeg2|mpg|mpe|mpv|m1v|m2v|vob|ogv|wmv|3gp)$/i.test(file.name);
+}
+
+function getUploadContentType(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (["mpeg", "mpeg1", "mpeg2", "mpg", "mpe", "mpv", "m1v", "m2v", "vob"].includes(extension || "")) return "video/mpeg";
+  if (file.type && file.type !== "application/octet-stream") return file.type;
+  if (["mp4", "m4v"].includes(extension || "")) return "video/mp4";
+  if (extension === "mov") return "video/quicktime";
+  if (extension === "webm") return "video/webm";
+  if (extension === "avi") return "video/x-msvideo";
+  if (extension === "ogv") return "video/ogg";
+  if (extension === "wmv") return "video/x-ms-wmv";
+  if (extension === "3gp") return "video/3gpp";
+  return "application/octet-stream";
+}
+
 function parseVoiceComment(content: string) {
   if (!content.startsWith(VOICE_COMMENT_PREFIX)) {
     return { content, storagePath: undefined };
@@ -248,6 +266,7 @@ export function PostProvider({
     let active = true;
 
     async function loadPosts() {
+      let feedLoaded = false;
       try {
         const supabase = createClient();
 
@@ -336,6 +355,8 @@ export function PostProvider({
 
         postsRef.current = loadedPosts;
         setPosts(loadedPosts);
+        feedLoaded = true;
+        if (active) setIsLoaded(true);
 
         if (postIds.length === 0) {
           setPostComments({});
@@ -496,7 +517,7 @@ export function PostProvider({
       } catch (error) {
         console.error("Could not load online posts:", error);
 
-        if (active) {
+        if (active && !feedLoaded) {
           postsRef.current = [];
           setPosts([]);
           setPostComments({});
@@ -607,21 +628,11 @@ export function PostProvider({
 
     if (!cleanContent && mediaFiles.length === 0) return;
 
-    if (mediaFiles.length > 1) {
-      const allImages = mediaFiles.every((file) =>
-        file.type.startsWith("image/")
-      );
-
-      if (!allImages) {
-        throw new Error(
-          "Choose multiple pictures or one video per post. Pictures and videos cannot be mixed."
-        );
-      }
-    }
+    if (mediaFiles.length > 10) throw new Error("A post can contain up to 10 media items.");
 
     for (const file of mediaFiles) {
       const isImage = file.type.startsWith("image/");
-      const isVideo = file.type.startsWith("video/");
+      const isVideo = isVideoUpload(file);
 
       if (!isImage && !isVideo) {
         throw new Error("Please choose valid image or video files.");
@@ -674,7 +685,7 @@ export function PostProvider({
     try {
       for (let index = 0; index < mediaFiles.length; index += 1) {
         const file = mediaFiles[index];
-        const isVideo = file.type.startsWith("video/");
+        const isVideo = isVideoUpload(file);
 
         const safeName = file.name.replace(
           /[^a-zA-Z0-9._-]/g,
@@ -687,7 +698,7 @@ export function PostProvider({
           .from("post-media")
           .upload(storagePath, file, {
             upsert: false,
-            contentType: file.type,
+            contentType: getUploadContentType(file),
           });
 
         if (uploadError) throw uploadError;

@@ -15,7 +15,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../../../../utils/supabase/client";
 import { ensureProfileForUser } from "../../../../utils/supabase/ensure-profile";
 import { usePosts } from "../PostContext";
-import MediaDisplay from "../MediaDisplay";
+import type { Post, PostMedia } from "../../lib/posts";
+import { getMedia } from "../../lib/mediaStorage";
 
 const PROFILE_KEY = "project-one-profile";
 const AVATAR_BUCKET = "avatars";
@@ -104,6 +105,128 @@ function Avatar({
   );
 }
 
+function ProfilePostTile({ post }: { post: Post }) {
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [mediaIndex, setMediaIndex] = useState(0);
+  const touchStartXRef = useRef<number | null>(null);
+  const fallbackMedia: PostMedia | undefined = post.mediaId && post.mediaType
+    ? { mediaId: post.mediaId, mediaType: post.mediaType, mediaName: post.mediaName || "Post media" }
+    : undefined;
+  const mediaItems = post.mediaItems?.length ? post.mediaItems : fallbackMedia ? [fallbackMedia] : [];
+  const media: PostMedia | undefined = mediaItems[Math.min(mediaIndex, Math.max(0, mediaItems.length - 1))];
+
+  useEffect(() => {
+    if (!media) return;
+    const supabase = createClient();
+    let objectUrl = "";
+    let active = true;
+    const loadMedia = async () => {
+      if (media.mediaId.startsWith("post-media/")) {
+        const { data } = supabase.storage
+          .from("post-media")
+          .getPublicUrl(media.mediaId.slice("post-media/".length));
+        if (active) setMediaUrl(data.publicUrl);
+        return;
+      }
+
+      try {
+        const file = await getMedia(media.mediaId);
+        if (!active || !file) return;
+        objectUrl = URL.createObjectURL(file);
+        setMediaUrl(objectUrl);
+      } catch (error) {
+        console.error("Could not load profile post media:", error);
+      }
+    };
+    void loadMedia();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [media?.mediaId]);
+
+  const normalizedUsername = post.username.trim().replace(/^@/, "");
+  const authorProfileUrl = normalizedUsername
+    ? `/app/profile?username=${encodeURIComponent(normalizedUsername)}`
+    : post.authorId
+      ? `/app/profile?id=${encodeURIComponent(post.authorId)}`
+      : "/app/profile";
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => { setMediaIndex(0); setViewerOpen(true); }}
+        aria-label={`Open post by ${post.author}: ${post.content || post.mediaName || "Post"}`}
+        className="group relative aspect-square overflow-hidden rounded-2xl bg-gradient-to-br from-[#ddd8ff] via-[#f2eaff] to-[#c6b6ff]"
+      >
+        {mediaUrl && media?.mediaType === "video" ? (
+          <video src={mediaUrl} muted playsInline className="h-full w-full object-cover" />
+        ) : mediaUrl ? (
+          <img src={mediaUrl} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        ) : (
+          <span className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm font-medium leading-5 text-[#43396a]">
+            {post.content || "VYBE post"}
+          </span>
+        )}
+        {mediaUrl && post.content && (
+          <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-8 text-xs font-medium text-white">
+            {post.content}
+          </span>
+        )}
+      </button>
+
+      {viewerOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/95 p-3 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Post by ${post.author}`}
+          onClick={() => setViewerOpen(false)}
+        >
+          <div className="relative flex h-full max-h-[900px] w-full max-w-3xl flex-col items-center justify-center" onClick={(event) => event.stopPropagation()}>
+            <button type="button" onClick={() => setViewerOpen(false)} aria-label="Back to profile" className="absolute left-0 top-0 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+            </button>
+            <div className="relative flex min-h-0 w-full flex-1 items-center justify-center touch-pan-y" onTouchStart={(event) => { touchStartXRef.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={(event) => {
+              const startX = touchStartXRef.current;
+              const endX = event.changedTouches[0]?.clientX;
+              touchStartXRef.current = null;
+              if (startX === null || endX === undefined || mediaItems.length < 2) return;
+              const distance = startX - endX;
+              if (Math.abs(distance) < 45) return;
+              setMediaIndex((index) => Math.min(mediaItems.length - 1, Math.max(0, index + (distance > 0 ? 1 : -1))));
+            }}>
+              {mediaUrl && media?.mediaType === "video" ? (
+                <video src={mediaUrl} controls autoPlay playsInline className="max-h-full max-w-full object-contain" />
+              ) : mediaUrl ? (
+                <img src={mediaUrl} alt={media?.mediaName || "Post image"} className="max-h-full max-w-full object-contain" />
+              ) : (
+                <p className="max-w-xl whitespace-pre-wrap text-center text-xl text-white">{post.content || "Post media is unavailable."}</p>
+              )}
+            </div>
+            {mediaItems.length > 1 && <div className="flex items-center justify-center gap-1.5 py-2" role="tablist" aria-label="Post media">
+              {mediaItems.map((item, index) => <button key={`${item.mediaId}-${index}`} type="button" role="tab" aria-label={`Show media ${index + 1} of ${mediaItems.length}`} aria-selected={mediaIndex === index} onClick={() => setMediaIndex(index)} className={`h-1.5 rounded-full transition-all ${mediaIndex === index ? "w-3 bg-white" : "w-1.5 bg-white/40"}`} />)}
+            </div>}
+            <div className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-white/10 p-3 text-white">
+              <Link href={authorProfileUrl} onClick={() => setViewerOpen(false)} aria-label={`View ${post.author}'s profile`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 text-lg font-bold">
+                {post.author.trim().charAt(0).toUpperCase() || "V"}
+              </Link>
+              <div className="min-w-0 flex-1">
+                <Link href={authorProfileUrl} onClick={() => setViewerOpen(false)} className="block truncate text-sm font-semibold hover:underline">{post.author}</Link>
+                <span className="block truncate text-xs text-white/70">{post.username}</span>
+                {post.content && <p className="mt-1 line-clamp-2 text-sm">{post.content}</p>}
+              </div>
+              <Link href={`/app?post=${post.id}`} onClick={() => setViewerOpen(false)} className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-semibold text-gray-900">Open post</Link>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ProfilePageContent() {
   const { posts } = usePosts();
   const router = useRouter();
@@ -135,6 +258,8 @@ function ProfilePageContent() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const [tab, setTab] = useState("Posts");
+  const [savedPostIds, setSavedPostIds] = useState<number[]>([]);
+  const [likedPostIds, setLikedPostIds] = useState<number[]>([]);
   const [followingCount, setFollowingCount] = useState(0);
   const [followersCount, setFollowersCount] = useState(0);
 
@@ -427,6 +552,38 @@ function ProfilePageContent() {
     (!!username && normalizeUsername(username) === requestedUsername);
 
   useEffect(() => {
+    if (!currentUserId || !isOwnProfile) return;
+
+    let cancelled = false;
+    async function loadProfileCollections() {
+      try {
+        const supabase = createClient();
+        const [savedResult, likedResult] = await Promise.all([
+          supabase.from("saved_posts").select("post_id").eq("user_id", currentUserId),
+          supabase.from("post_likes").select("post_id").eq("user_id", currentUserId),
+        ]);
+        if (savedResult.error) throw savedResult.error;
+        if (likedResult.error) throw likedResult.error;
+        if (cancelled) return;
+        setSavedPostIds((savedResult.data ?? []).map((row) => Number(row.post_id)));
+        setLikedPostIds((likedResult.data ?? []).map((row) => Number(row.post_id)));
+      } catch (error) {
+        console.error("Unable to load profile collections:", error);
+      }
+    }
+
+    void loadProfileCollections();
+    const refreshCollections = () => void loadProfileCollections();
+    window.addEventListener("project-one-saved-posts-updated", refreshCollections);
+    window.addEventListener("project-one-likes-updated", refreshCollections);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("project-one-saved-posts-updated", refreshCollections);
+      window.removeEventListener("project-one-likes-updated", refreshCollections);
+    };
+  }, [currentUserId, isOwnProfile]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadPublicProfile() {
@@ -568,6 +725,12 @@ function ProfilePageContent() {
       (!!postAuthor && postAuthor === normalizeUsername(username))
     );
   });
+
+  const savedPosts = posts.filter((post) => savedPostIds.includes(post.id));
+  const likedPosts = posts.filter((post) => likedPostIds.includes(post.id));
+  const profileTabs = isOwnProfile
+    ? ["Posts", "Stories", "Saved", "Liked"]
+    : ["Posts", "Stories"];
 
   useEffect(() => {
     let cancelled = false;
@@ -740,6 +903,38 @@ function ProfilePageContent() {
       try {
         const supabase = createClient();
 
+        const { data: activeStories, error: activeStoriesError } = await supabase
+          .from("stories")
+          .select("id, media_path, media_type, expires_at")
+          .eq("user_id", targetUserId)
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: true });
+
+        if (activeStoriesError) {
+          console.error("Unable to load active profile stories:", activeStoriesError);
+        }
+
+        const activeStoryItems = (activeStories ?? [])
+          .filter((story: { media_path: string | null }) => !!story.media_path)
+          .map((story: { id: string; media_path: string; media_type: string }) => {
+            const { data } = supabase.storage
+              .from("post-media")
+              .getPublicUrl(story.media_path);
+            return {
+              id: story.id,
+              url: data.publicUrl,
+              isVideo: story.media_type === "video",
+            };
+          });
+        const activeStoryCard: ProfileHighlight | null = activeStoryItems.length
+          ? {
+              id: -1,
+              title: "Recent stories",
+              cover: activeStoryItems[activeStoryItems.length - 1].url,
+              items: activeStoryItems,
+            }
+          : null;
+
         const { data: highlights, error } = await supabase
           .from("story_highlights")
           .select("*")
@@ -754,12 +949,12 @@ function ProfilePageContent() {
             console.error("Unable to load story highlights:", error);
           }
 
-          if (!cancelled) setProfileHighlights([]);
+          if (!cancelled) setProfileHighlights(activeStoryCard ? [activeStoryCard] : []);
           return;
         }
 
         if (!highlights?.length) {
-          if (!cancelled) setProfileHighlights([]);
+          if (!cancelled) setProfileHighlights(activeStoryCard ? [activeStoryCard] : []);
           return;
         }
 
@@ -775,7 +970,7 @@ function ProfilePageContent() {
 
         if (itemsError) {
           console.error("Unable to load highlight items:", itemsError);
-          if (!cancelled) setProfileHighlights([]);
+          if (!cancelled) setProfileHighlights(activeStoryCard ? [activeStoryCard] : []);
           return;
         }
 
@@ -850,7 +1045,7 @@ function ProfilePageContent() {
 
         if (!cancelled) {
           setProfileHighlights(
-            result.filter((highlight) => highlight.items.length > 0)
+            [...(activeStoryCard ? [activeStoryCard] : []), ...result].filter((highlight) => highlight.items.length > 0)
           );
         }
       } catch (error) {
@@ -1084,63 +1279,31 @@ function ProfilePageContent() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-2xl bg-white px-3 pb-24 text-gray-900 sm:px-5">
-      <header className="flex items-center justify-between border-b border-gray-100 py-4">
-        <Link href="/app" className="text-lg font-bold tracking-tight">
-          VYBE.
+      <header className="flex items-center justify-between border-b border-gray-100 py-2">
+        <Link href="/app" className="text-lg font-extrabold tracking-tight text-black">
+          VYBE<span className="text-[#7d22ef]">.</span>
         </Link>
 
         <div className="flex items-center gap-2">
           {isOwnProfile && (
             <>
               <Link
-                href="/app/create"
-                aria-label="Create post"
-                title="Create post"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-[#f3f3f1] text-gray-700 transition hover:bg-[#eaeae7]"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
-                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-                </svg>
-              </Link>
-
-              <Link
                 href="/app/settings"
                 aria-label="Settings"
                 title="Settings"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-[#f3f3f1] text-gray-700 transition hover:bg-[#eaeae7]"
+                className="flex h-16 w-16 items-center justify-center rounded-full text-gray-900 transition hover:bg-purple-50"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
-                  <path
-                    d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a7.8 7.8 0 0 1-1.7 1l-.3 1.8h-2.8l-.3-1.8a7.8 7.8 0 0 1-1.7-1l-1.7.7-1.4-2.4 1.4-1.1a7.4 7.4 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a7.8 7.8 0 0 1 1.7-1l.3-1.8h2.8l.3 1.8a7.8 7.8 0 0 1 1.7 1l1.7-.7 1.4 2.4-1.4 1.1a7.4 7.4 0 0 1 0 2Z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                  <path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a7.8 7.8 0 0 1-1.7 1l-.3 1.8h-2.8l-.3-1.8a7.8 7.8 0 0 1-1.7-1l-1.7.7-1.4-2.4 1.4-1.1a7.4 7.4 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a7.8 7.8 0 0 1 1.7-1l.3-1.8h2.8l.3 1.8a7.8 7.8 0 0 1 1.7 1l1.7-.7 1.4 2.4-1.4 1.1a7.4 7.4 0 0 1 0 2Z" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </Link>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="rounded-full border border-gray-200 bg-[#f3f3f1] px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-[#eaeae7] disabled:opacity-60"
-              >
-                {loggingOut ? "Logging out..." : "Log out"}
-              </button>
+              <details className="relative">
+                <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full text-lg text-gray-700 hover:bg-purple-50" aria-label="More profile actions">⋮</summary>
+                <button type="button" onClick={handleLogout} disabled={loggingOut} className="absolute right-0 top-6 z-20 whitespace-nowrap rounded-xl border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium shadow-lg disabled:opacity-60">
+                  {loggingOut ? "Logging out..." : "Log out"}
+                </button>
+              </details>
             </>
           )}
         </div>
@@ -1164,377 +1327,170 @@ function ProfilePageContent() {
         </p>
       )}
 
-      <section className="mt-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex items-start gap-3 sm:gap-4">
-          <Avatar
-            src={displayedAvatarUrl}
-            name={displayedName}
-            className="h-[68px] w-[68px] shrink-0 rounded-full border border-gray-200 sm:h-[76px] sm:w-[76px]"
-          />
-
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <h1 className="truncate text-lg font-bold leading-6 tracking-tight sm:text-xl">
-                  {displayedName}
-                </h1>
-                <p className="mt-0.5 truncate text-sm text-gray-500">
-                  {displayedUsername}
-                </p>
-              </div>
-
-              {isOwnProfile ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraftName(name);
-                    setDraftUsername(username);
-                    setDraftBio(bio);
-                    setSelectedAvatarFile(null);
-                    setProfileError("");
-                    setProfileMessage("");
-                    if (avatarInputRef.current) {
-                      avatarInputRef.current.value = "";
-                    }
-                    setEditing(true);
-                  }}
-                  className="rounded-full border border-gray-200 bg-[#f3f3f1] px-3 py-1.5 text-xs font-semibold text-gray-800 transition hover:bg-[#eaeae7] sm:px-4 sm:text-sm"
-                >
-                  Edit profile
-                </button>
-              ) : displayedProfile ? (
-                <button
-                  type="button"
-                  onClick={handleFollow}
-                  disabled={followBusy || !currentUserId}
-                  className="rounded-full border border-gray-200 bg-[#f3f3f1] px-4 py-1.5 text-xs font-semibold text-gray-800 transition hover:bg-[#eaeae7] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
-                >
-                  {followBusy
-                    ? "Please wait..."
-                    : isFollowing
-                      ? "Following"
-                      : "Follow"}
-                </button>
-              ) : null}
-            </div>
-
-            <div className="mt-3 grid grid-cols-3 divide-x divide-gray-100 rounded-xl border border-gray-100 bg-gray-50/70 py-2.5">
-              <div className="px-1 text-center">
-                <p className="text-base font-bold leading-5 tabular-nums">
-                  {profilePosts.length}
-                </p>
-                <p className="mt-1 text-[11px] text-gray-500 sm:text-xs">
-                  Posts
-                </p>
-              </div>
-
-              <div className="px-1 text-center">
-                <p className="text-base font-bold leading-5 tabular-nums">
-                  {followersCount}
-                </p>
-                <p className="mt-1 text-[11px] text-gray-500 sm:text-xs">
-                  Followers
-                </p>
-              </div>
-
-              <div className="px-1 text-center">
-                <p className="text-base font-bold leading-5 tabular-nums">
-                  {followingCount}
-                </p>
-                <p className="mt-1 text-[11px] text-gray-500 sm:text-xs">
-                  Following
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {displayedBio && (
-          <p className="mt-3 whitespace-pre-wrap text-sm leading-5 text-gray-700">
-            {displayedBio}
-          </p>
-        )}
-
-        {followError && (
-          <p role="alert" className="mt-2 text-xs text-red-600">
-            {followError}
-          </p>
-        )}
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {isOwnProfile ? (
-            <>
-              <Link
-                href="/app/create"
-                className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-[#f3f3f1] px-3.5 py-2 text-xs font-semibold text-gray-800 transition hover:bg-[#eaeae7] sm:text-sm"
-              >
-                Create Post
-              </Link>
-
-              <Link
-                href="/app"
-                className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 sm:text-sm"
-              >
-                Back to Feed
-              </Link>
-
-              <Link
-                href="/app/explore"
-                className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 sm:text-sm"
-              >
-                Discover People
-              </Link>
-            </>
-          ) : (
-            <Link
-              href="/app"
-              className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 sm:text-sm"
-            >
-              Back to Feed
-            </Link>
-          )}
-        </div>
-      </section>
-
-      <section className="mt-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Story Highlights
-          </h2>
-          {loadingHighlights && (
-            <span className="text-xs text-gray-400">Loading...</span>
-          )}
-        </div>
-
-        {profileHighlights.length > 0 ? (
-          <div className="flex gap-4 overflow-x-auto pb-2">
-            {profileHighlights.map((highlight) => (
+      <section className="relative mt-3 bg-white px-2 pb-5 pt-1 sm:px-5">
+        <div className="relative h-[100px] sm:h-[114px]">
+          <div className="absolute left-0 top-0 h-[92px] w-[92px] rounded-full bg-white p-[4px] shadow-[0_0_0_3px_#7d22ef] sm:h-[106px] sm:w-[106px]">
+            <Avatar src={displayedAvatarUrl} name={displayedName} className="h-full w-full rounded-full border-[3px] border-white bg-gray-200" />
+            {isOwnProfile && (
               <button
-                key={highlight.id}
                 type="button"
                 onClick={() => {
-                  setOpenedProfileHighlight(highlight);
-                  setProfileHighlightIndex(0);
+                  setDraftName(name);
+                  setDraftUsername(username);
+                  setDraftBio(bio);
+                  setSelectedAvatarFile(null);
+                  setProfileError("");
+                  setProfileMessage("");
+                  setEditing(true);
                 }}
-                className="flex w-[76px] shrink-0 flex-col items-center gap-2 text-center"
+                aria-label="Change profile picture"
+                title="Change profile picture"
+                className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full bg-[#7600ef] text-white shadow-md ring-2 ring-white"
               >
-                <span className="flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 p-1">
-                  {highlight.cover ? (
-                    highlight.items[0]?.isVideo ? (
-                      <video
-                        src={highlight.cover}
-                        className="h-full w-full rounded-xl object-cover"
-                        muted
-                        playsInline
-                      />
-                    ) : (
-                      <img
-                        src={highlight.cover}
-                        alt={highlight.title}
-                        className="h-full w-full rounded-xl object-cover"
-                      />
-                    )
-                  ) : (
-                    <span className="text-xs text-gray-400">Story</span>
-                  )}
-                </span>
-                <span className="w-full truncate text-xs text-gray-700">
-                  {highlight.title}
-                </span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                  <path d="M4 8.5h3l1.4-2h7.2l1.4 2h3v10H4z" strokeLinejoin="round" />
+                  <circle cx="12" cy="13.5" r="3.2" />
+                </svg>
               </button>
-            ))}
+            )}
           </div>
-        ) : (
-          <p className="rounded-xl border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-400">
-            No story highlights yet.
-          </p>
-        )}
+
+          {isOwnProfile ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDraftName(name);
+                setDraftUsername(username);
+                setDraftBio(bio);
+                setSelectedAvatarFile(null);
+                setProfileError("");
+                setProfileMessage("");
+                setEditing(true);
+              }}
+              className="absolute right-0 top-6 inline-flex items-center gap-2 rounded-full border border-[#ddddea] px-4 py-2.5 text-sm font-semibold text-gray-900 transition hover:border-[#7d22ef] hover:bg-purple-50 sm:px-6"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true"><path d="m4 16.5-.8 4.3 4.3-.8L19.7 7.8a2.1 2.1 0 0 0-3-3L4 16.5Z" strokeLinejoin="round"/><path d="m14.9 6.6 3 3"/></svg>
+              Edit Profile
+            </button>
+          ) : displayedProfile ? (
+            <button type="button" onClick={handleFollow} disabled={followBusy || !currentUserId} className="absolute right-0 top-6 rounded-full border border-[#ddddea] px-5 py-2.5 text-sm font-semibold text-gray-900 transition hover:bg-purple-50 disabled:opacity-60">
+              {followBusy ? "Please wait..." : isFollowing ? "Following" : "Follow"}
+            </button>
+          ) : null}
+        </div>
+
+        <h1 className="truncate text-3xl font-extrabold tracking-tight text-black sm:text-4xl">{displayedName}</h1>
+        <p className="mt-1 truncate text-lg font-medium text-[#69758c] sm:text-xl">{displayedUsername}</p>
+
+        {displayedBio && <p className="mt-1.5 max-w-2xl whitespace-pre-wrap text-base leading-6 text-gray-900">{displayedBio}</p>}
+
+        {followError && <p role="alert" className="mt-2 text-xs text-red-600">{followError}</p>}
+
+        <div className="mt-3 grid grid-cols-3 divide-x divide-[#d9ddea]">
+          <div className="px-2 text-center"><p className="text-xl font-bold leading-6 tabular-nums sm:text-2xl">{profilePosts.length}</p><p className="mt-1 text-sm text-[#69758c] sm:text-base">Posts</p></div>
+          <div className="px-2 text-center"><p className="text-xl font-bold leading-6 tabular-nums sm:text-2xl">{followersCount}</p><p className="mt-1 text-sm text-[#69758c] sm:text-base">Followers</p></div>
+          <div className="px-2 text-center"><p className="text-xl font-bold leading-6 tabular-nums sm:text-2xl">{followingCount}</p><p className="mt-1 text-sm text-[#69758c] sm:text-base">Following</p></div>
+        </div>
+
+        <div className="mt-5">
+          <h2 className="mb-3 text-base font-bold text-gray-900">Highlights</h2>
+          {profileHighlights.length ? (
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {profileHighlights.map((highlight) => (
+                <button
+                  key={highlight.id}
+                  type="button"
+                  onClick={() => { setOpenedProfileHighlight(highlight); setProfileHighlightIndex(0); }}
+                  className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#7d22ef] bg-gradient-to-br from-purple-200 to-violet-700 p-1"
+                  aria-label={`Open highlight: ${highlight.title}`}
+                >
+                  <span className="block h-full w-full overflow-hidden rounded-full bg-white">
+                    {highlight.cover && (highlight.items[0]?.isVideo ? <video src={highlight.cover} muted playsInline className="h-full w-full object-cover" /> : <img src={highlight.cover} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" />)}
+                  </span>
+                  <span className="absolute inset-x-0 bottom-0 line-clamp-1 bg-gradient-to-t from-black/75 to-transparent px-1 pb-1 pt-4 text-center text-[10px] font-semibold text-white">{highlight.title}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="py-3 text-sm text-gray-500">{loadingHighlights ? "Loading highlights…" : "No highlights yet."}</p>
+          )}
+        </div>
       </section>
 
-      <section className="mt-5">
-        <div className="grid grid-cols-3 border-y border-gray-100">
-          {["Posts", "Media", "Saved"].map((item) => (
+      <section className="-mx-3 mt-2 border-y border-gray-100 bg-white sm:-mx-5">
+        <div role="tablist" aria-label="Profile sections" className={`grid ${isOwnProfile ? "grid-cols-4" : "grid-cols-2"} border-b border-gray-100`}>
+          {profileTabs.map((item) => (
             <button
               key={item}
               type="button"
+              role="tab"
+              aria-selected={tab === item}
               onClick={() => setTab(item)}
-              className={`relative py-3 text-sm font-medium transition ${
-                tab === item
-                  ? "text-gray-900"
-                  : "text-gray-400 hover:text-gray-700"
-              }`}
+              className={`relative px-1 py-4 text-sm transition sm:text-base ${tab === item ? "font-semibold text-gray-950" : "font-medium text-[#69758c] hover:text-gray-900"}`}
             >
               {item}
-              {tab === item && (
-                <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-gray-900" />
-              )}
+              {tab === item && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-full bg-[#7d22ef] sm:inset-x-5" />}
             </button>
           ))}
         </div>
 
         {tab === "Posts" && (
-          <div className="mt-4">
-            {profilePosts.length > 0 ? (
-              <div className="space-y-4">
-                {profilePosts.map((post) => (
-                  <article
-                    key={post.id}
-                    id={`post-${post.id}`}
-                    className="overflow-hidden rounded-2xl border border-gray-100 bg-white"
-                  >
-                    <div className="flex items-center justify-between gap-3 px-4 py-3">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <Avatar
-                          src={displayedAvatarUrl}
-                          name={displayedName}
-                          className="h-9 w-9 shrink-0 rounded-full"
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-gray-900">
-                            {displayedName}
-                          </p>
-                          <p className="truncate text-xs text-gray-500">
-                            {displayedUsername}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-xs text-gray-400">
-                        {(post as { world?: string }).world || ""}
-                      </span>
-                    </div>
-
-                    {post.content && (
-                      <div className="whitespace-pre-wrap px-4 pb-3 text-sm leading-6 text-gray-800">
-                        {post.content}
-                      </div>
-                    )}
-
-                    {(post as { mediaId?: string }).mediaId && (
-                      <MediaDisplay
-                        mediaId={(post as { mediaId: string }).mediaId}
-                        mediaType={
-                          (post as { mediaType?: "image" | "video" })
-                            .mediaType || "image"
-                        }
-                        mediaName={
-                          (post as { mediaName?: string }).mediaName || ""
-                        }
-                      />
-                    )}
-
-                    <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-                      <span className="text-xs text-gray-400">
-                        Shared on VYBE
-                      </span>
-                      <Link
-                        href={`/app?post=${post.id}`}
-                        className="text-xs font-semibold text-gray-600 hover:text-gray-900"
-                      >
-                        View post
-                      </Link>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-gray-200 px-5 py-12 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-gray-500">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    className="h-6 w-6"
-                    aria-hidden="true"
-                  >
-                    <rect x="3" y="3" width="18" height="18" rx="4" />
-                    <path d="M8 12h8M12 8v8" strokeLinecap="round" />
-                  </svg>
-                </div>
-                <h3 className="mt-3 text-sm font-semibold text-gray-900">
-                  No posts yet
-                </h3>
-                <p className="mt-1 text-xs leading-5 text-gray-500">
-                  Your posts will appear here when you share something.
-                </p>
-                {isOwnProfile && (
-                  <Link
-                    href="/app/create"
-                    className="mt-4 inline-flex items-center justify-center rounded-full border border-gray-200 bg-[#f3f3f1] px-4 py-2 text-sm font-semibold text-gray-800 transition hover:bg-[#eaeae7]"
-                  >
-                    Create your first post
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
+          profilePosts.length ? (
+            <div className="grid grid-cols-3 gap-1.5 p-2 sm:gap-2 sm:p-3">
+              {profilePosts.map((post) => <ProfilePostTile key={post.id} post={post} />)}
+            </div>
+          ) : (
+            <div className="px-5 py-12 text-center">
+              <h3 className="text-base font-semibold text-gray-900">No posts yet</h3>
+              <p className="mt-1 text-sm text-gray-500">Posts will show here when shared.</p>
+              {isOwnProfile && <Link href="/app/create" className="mt-4 inline-flex rounded-full bg-[#7d22ef] px-5 py-2.5 text-sm font-semibold text-white">Create your first post</Link>}
+            </div>
+          )
         )}
 
-        {tab === "Media" && (
-          <div className="mt-4">
-            {profilePosts.filter(
-              (post) => !!(post as { mediaId?: string }).mediaId
-            ).length > 0 ? (
-              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-                {profilePosts
-                  .filter((post) => !!(post as { mediaId?: string }).mediaId)
-                  .map((post) => (
-                    <Link
-                      key={post.id}
-                      href={`/app?post=${post.id}`}
-                      className="aspect-square overflow-hidden rounded-lg bg-gray-100"
-                    >
-                      <MediaDisplay
-                        mediaId={(post as { mediaId: string }).mediaId}
-                        mediaType={
-                          (post as { mediaType?: "image" | "video" })
-                            .mediaType || "image"
-                        }
-                        mediaName={
-                          (post as { mediaName?: string }).mediaName || ""
-                        }
-                      />
-                    </Link>
-                  ))}
-              </div>
-            ) : (
-              <p className="rounded-2xl border border-dashed border-gray-200 px-5 py-12 text-center text-sm text-gray-400">
-                No media posts yet.
-              </p>
-            )}
-          </div>
+        {tab === "Stories" && (
+          profileHighlights.length ? (
+            <div className="grid grid-cols-3 gap-1.5 p-2 sm:gap-2 sm:p-3">
+              {profileHighlights.map((highlight) => (
+                <button key={highlight.id} type="button" onClick={() => { setOpenedProfileHighlight(highlight); setProfileHighlightIndex(0); }} className="group relative aspect-square overflow-hidden rounded-xl bg-gradient-to-br from-purple-200 to-violet-700">
+                  {highlight.cover && (highlight.items[0]?.isVideo ? <video src={highlight.cover} muted playsInline className="h-full w-full object-cover" /> : <img src={highlight.cover} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" />)}
+                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-7 text-left text-xs font-semibold text-white">{highlight.title}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="px-5 py-12 text-center">
+              <h3 className="text-base font-semibold text-gray-900">No stories yet</h3>
+              <p className="mt-1 text-sm text-gray-500">{loadingHighlights ? "Loading stories..." : "Saved story highlights will appear here."}</p>
+            </div>
+          )
         )}
 
         {tab === "Saved" && (
-          <div className="mt-4 rounded-2xl border border-dashed border-gray-200 px-5 py-12 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-gray-500">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                className="h-6 w-6"
-                aria-hidden="true"
-              >
-                <path
-                  d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4V4.5Z"
-                  strokeLinejoin="round"
-                />
-              </svg>
+          savedPosts.length ? (
+            <div className="grid grid-cols-3 gap-1.5 p-2 sm:gap-2 sm:p-3">
+              {savedPosts.map((post) => <ProfilePostTile key={post.id} post={post} />)}
             </div>
-            <h3 className="mt-3 text-sm font-semibold text-gray-900">
-              Saved posts
-            </h3>
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              Posts you save from the feed will be available in your Saved tab.
-            </p>
-            <Link
-              href="/app"
-              className="mt-4 inline-flex items-center justify-center rounded-full border border-gray-200 bg-[#f3f3f1] px-4 py-2 text-sm font-semibold text-gray-800 transition hover:bg-[#eaeae7]"
-            >
-              Explore the feed
-            </Link>
-          </div>
+          ) : (
+            <div className="px-5 py-12 text-center">
+              <h3 className="text-base font-semibold text-gray-900">No saved posts yet</h3>
+              <p className="mt-1 text-sm text-gray-500">Posts you save from the feed will appear here.</p>
+              <Link href="/app/saved" className="mt-4 inline-flex rounded-full bg-[#f3efff] px-5 py-2.5 text-sm font-semibold text-[#7415dd]">Open saved collection</Link>
+            </div>
+          )
+        )}
+
+        {tab === "Liked" && (
+          likedPosts.length ? (
+            <div className="grid grid-cols-3 gap-1.5 p-2 sm:gap-2 sm:p-3">
+              {likedPosts.map((post) => <ProfilePostTile key={post.id} post={post} />)}
+            </div>
+          ) : (
+            <div className="px-5 py-12 text-center">
+              <h3 className="text-base font-semibold text-gray-900">No liked posts yet</h3>
+              <p className="mt-1 text-sm text-gray-500">Posts you like from the feed will appear here.</p>
+            </div>
+          )
         )}
       </section>
 
@@ -1760,7 +1716,7 @@ function ProfilePageContent() {
               <button
                 type="button"
                 onClick={() => setOpenedProfileHighlight(null)}
-                aria-label="Close story highlight"
+                aria-label="Back to profile"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/40 text-white transition hover:bg-black/60"
               >
                 <svg
@@ -1771,7 +1727,7 @@ function ProfilePageContent() {
                   className="h-5 w-5"
                   aria-hidden="true"
                 >
-                  <path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" />
+                  <path d="M19 12H5m7 7-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
             </div>

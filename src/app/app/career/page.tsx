@@ -1165,6 +1165,7 @@ export default function CareerPage() {
                           mediaId={post.mediaId}
                           mediaType={post.mediaType}
                           mediaName={post.mediaName}
+                          mediaItems={post.mediaItems}
                         />
                       </div>
                     )}

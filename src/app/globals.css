@@ -169,6 +169,16 @@ article,
   to { transform: translateY(0); }
 }
 
+@keyframes vybe-carousel-slide-left {
+  from { transform: translateX(18px); opacity: 0.7; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes vybe-carousel-slide-right {
+  from { transform: translateX(-18px); opacity: 0.7; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
 .vybe-viewer-enter-up {
   animation: vybe-viewer-enter-up 320ms cubic-bezier(0.22, 0.8, 0.25, 1) both;
 }
@@ -177,7 +187,19 @@ article,
   animation: vybe-viewer-enter-down 320ms cubic-bezier(0.22, 0.8, 0.25, 1) both;
 }
 
+.vybe-carousel-slide-left {
+  animation: vybe-carousel-slide-left 220ms ease-out both;
+}
+
+.vybe-carousel-slide-right {
+  animation: vybe-carousel-slide-right 220ms ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .vybe-carousel-slide-left,
+  .vybe-carousel-slide-right {
+    animation-duration: 1ms;
+  }
   .vybe-viewer-enter-up,
   .vybe-viewer-enter-down {
     animation: none;

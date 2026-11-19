@@ -283,6 +283,7 @@ export default function SavedPage() {
                       mediaId={post.mediaId}
                       mediaType={post.mediaType}
                       mediaName={post.mediaName}
+                      mediaItems={post.mediaItems}
                     />
                   </div>
                 )}

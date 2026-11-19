@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 
@@ -10,6 +10,10 @@ type StoryMedia = {
   media: string;
   isVideo: boolean;
   text?: string | null;
+  crop?: "cover" | "contain";
+  theme?: "original" | "warm" | "cool" | "mono" | "vivid";
+  captionX?: number;
+  captionY?: number;
   createdAt?: number;
 };
 
@@ -116,6 +120,45 @@ const STORY_DURATION = 24 * 60 * 60 * 1000;
 const MEDIA_DURATION = 5000;
 const BUCKET = "post-media";
 const PROFILE_KEY = "project-one-profile";
+const STORY_FILTERS = {
+  original: "none",
+  warm: "sepia(.28) saturate(1.2)",
+  cool: "hue-rotate(12deg) saturate(1.15)",
+  mono: "grayscale(1)",
+  vivid: "saturate(1.5) contrast(1.08)",
+} as const;
+
+async function renderEditedStoryImage(
+  source: Blob,
+  crop: "cover" | "contain",
+  theme: keyof typeof STORY_FILTERS
+) {
+  const sourceUrl = URL.createObjectURL(source);
+  try {
+    const image = new Image();
+    image.src = sourceUrl;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare this story image.");
+    context.fillStyle = theme === "warm" ? "#493023" : theme === "cool" ? "#172b43" : theme === "mono" ? "#202020" : theme === "vivid" ? "#33145d" : "#191326";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const scale = crop === "cover"
+      ? Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight)
+      : Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    context.filter = STORY_FILTERS[theme];
+    context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not prepare this story image.")), "image/png");
+    });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 
 const sampleStories: Story[] = [
 ];
@@ -300,6 +343,38 @@ function getMediaItems(story: Story): StoryMedia[] {
   return [];
 }
 
+function parseStoryEdit(text: string | null): {
+  text: string | null;
+  crop?: StoryMedia["crop"];
+  theme?: StoryMedia["theme"];
+  captionX?: number;
+  captionY?: number;
+} {
+  const match = text?.match(/^\[\[VYBE_STORY_EDIT:(.*?)\]\]\n?/);
+  if (!match) return { text };
+
+  try {
+    const style = JSON.parse(decodeURIComponent(match[1])) as {
+      crop?: string;
+      theme?: string;
+      captionX?: number;
+      captionY?: number;
+    };
+    const crop: StoryMedia["crop"] = style.crop === "contain" ? "contain" : "cover";
+    const themes = ["original", "warm", "cool", "mono", "vivid"] as const;
+    const theme: StoryMedia["theme"] = themes.find((item) => item === style.theme) || "original";
+    return {
+      text: text?.slice(match[0].length) || null,
+      crop,
+      theme,
+      captionX: typeof style.captionX === "number" ? Math.min(92, Math.max(8, style.captionX)) : 50,
+      captionY: typeof style.captionY === "number" ? Math.min(92, Math.max(8, style.captionY)) : 76,
+    };
+  } catch {
+    return { text };
+  }
+}
+
 function shuffleStories(stories: Story[]) {
   const shuffled = [...stories];
 
@@ -389,6 +464,10 @@ export default function Stories() {
   const [storyViewers, setStoryViewers] = useState<StoryViewer[]>([]);
   const [showStoryViewers, setShowStoryViewers] = useState(false);
   const [loadingStoryViewers, setLoadingStoryViewers] = useState(false);
+  const [storyCrop, setStoryCrop] = useState<"cover" | "contain">("cover");
+  const [storyTheme, setStoryTheme] = useState<keyof typeof STORY_FILTERS>("original");
+  const [storyCaptionPosition, setStoryCaptionPosition] = useState({ x: 50, y: 76 });
+  const [deletingStoryId, setDeletingStoryId] = useState<string | null>(null);
 
   // Highlights remain available for saving stories.
   const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
@@ -469,6 +548,7 @@ export default function Stories() {
         const { data } = supabase.storage
           .from(BUCKET)
           .getPublicUrl(row.media_path);
+        const storyEdit = parseStoryEdit(row.text_content);
 
         const items = grouped.get(row.user_id) ?? [];
 
@@ -476,7 +556,11 @@ export default function Stories() {
           mediaId: row.id,
           media: data.publicUrl,
           isVideo: row.media_type === "video",
-          text: row.text_content,
+          text: storyEdit.text,
+          crop: storyEdit.crop,
+          theme: storyEdit.theme,
+          captionX: storyEdit.captionX,
+          captionY: storyEdit.captionY,
           createdAt: new Date(row.created_at).getTime(),
         });
 
@@ -543,6 +627,8 @@ export default function Stories() {
           allStories.filter((story) => getMediaItems(story).length > 0)
         )
       );
+      // Story cards can render while the secondary like data finishes loading.
+      setLoadingStories(false);
 
       if (storyIds.length > 0) {
         const { data: likes, error: likesError } = await supabase
@@ -587,11 +673,13 @@ export default function Stories() {
     const refresh = () => void loadStories();
 
     window.addEventListener("focus", refresh);
+    window.addEventListener("project-one-stories-updated", refresh);
 
     const interval = setInterval(refresh, 15000);
 
     return () => {
       window.removeEventListener("focus", refresh);
+      window.removeEventListener("project-one-stories-updated", refresh);
       clearInterval(interval);
       clearTimeout(initialLoad);
 
@@ -703,6 +791,55 @@ export default function Stories() {
   const activeOwnerId = activeStory?.id.startsWith("user-")
     ? activeStory.id.slice("user-".length)
     : null;
+
+  const deleteActiveStory = async () => {
+    if (!activeStory?.own || !activeOwnerId || !activeMedia?.mediaId || deletingStoryId) return;
+    setPaused(true);
+    if (!window.confirm("Delete this story? This cannot be undone.")) {
+      setPaused(false);
+      return;
+    }
+
+    setDeletingStoryId(activeMedia.mediaId);
+    try {
+      const supabase = createClient();
+      const { data: story, error: lookupError } = await supabase
+        .from("stories")
+        .select("media_path")
+        .eq("id", activeMedia.mediaId)
+        .eq("user_id", activeOwnerId)
+        .maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!story) throw new Error("This story could not be found.");
+
+      const { error: deleteError } = await supabase
+        .from("stories")
+        .delete()
+        .eq("id", activeMedia.mediaId)
+        .eq("user_id", activeOwnerId);
+      if (deleteError) throw deleteError;
+
+      if (story.media_path) {
+        const { error: storageError } = await supabase.storage
+          .from(BUCKET)
+          .remove([story.media_path]);
+        if (storageError) console.error("Story deleted, but media cleanup failed:", storageError);
+      }
+
+      const remainingCount = activeMediaItems.length - 1;
+      if (remainingCount <= 0) closeViewer();
+      else setMediaIndex((index) => Math.min(index, remainingCount - 1));
+      await loadStories();
+      showNotice("Story deleted.");
+      window.dispatchEvent(new Event("project-one-stories-updated"));
+    } catch (error) {
+      console.error("Could not delete story:", error);
+      setPaused(false);
+      showNotice(error instanceof Error ? error.message : "Could not delete this story.");
+    } finally {
+      setDeletingStoryId(null);
+    }
+  };
 
   const saveStoryToHighlight = async () => {
     if (
@@ -1000,6 +1137,29 @@ export default function Stories() {
   const [pendingStoryFiles, setPendingStoryFiles] = useState<File[]>([]);
   const [storyText, setStoryText] = useState("");
   const [showStoryComposer, setShowStoryComposer] = useState(false);
+  const [storyPreviewUrl, setStoryPreviewUrl] = useState("");
+  const captionDragRef = useRef(false);
+
+  useEffect(() => {
+    const file = pendingStoryFiles[0];
+    if (!showStoryComposer || !file) {
+      setStoryPreviewUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setStoryPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingStoryFiles, showStoryComposer]);
+
+  const moveComposerCaption = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!captionDragRef.current) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    setStoryCaptionPosition({
+      x: Math.min(92, Math.max(8, ((event.clientX - bounds.left) / bounds.width) * 100)),
+      y: Math.min(92, Math.max(8, ((event.clientY - bounds.top) / bounds.height) * 100)),
+    });
+  };
 
   const addStory = (files?: FileList | null) => {
     if (!files || files.length === 0 || uploading) return;
@@ -1030,6 +1190,9 @@ export default function Stories() {
 
     setPendingStoryFiles(selectedFiles);
     setStoryText("");
+    setStoryCrop("cover");
+    setStoryTheme("original");
+    setStoryCaptionPosition({ x: 50, y: 76 });
     setShowStoryComposer(true);
   };
 
@@ -1055,29 +1218,37 @@ export default function Stories() {
       }
 
       for (const file of selectedFiles) {
-        const extension =
-          file.name.split(".").pop()?.toLowerCase() || "bin";
+        const mediaType = file.type.startsWith("video/") ? "video" : "image";
+        const uploadBlob = mediaType === "image"
+          ? await renderEditedStoryImage(file, storyCrop, storyTheme)
+          : file;
+        const extension = mediaType === "image"
+          ? "png"
+          : file.name.split(".").pop()?.toLowerCase() || "mp4";
 
         const mediaPath = `${user.id}/stories/${crypto.randomUUID()}.${extension}`;
 
         const { error: uploadError } = await supabase.storage
           .from(BUCKET)
-          .upload(mediaPath, file, {
-            contentType: file.type,
+          .upload(mediaPath, uploadBlob, {
+            contentType: uploadBlob.type || file.type,
             upsert: false,
           });
 
         if (uploadError) throw uploadError;
 
-        const mediaType = file.type.startsWith("video/")
-          ? "video"
-          : "image";
+        const storyStyle = encodeURIComponent(JSON.stringify({
+          crop: mediaType === "video" ? storyCrop : "cover",
+          theme: mediaType === "video" ? storyTheme : "original",
+          captionX: storyCaptionPosition.x,
+          captionY: storyCaptionPosition.y,
+        }));
 
         const { error: insertError } = await supabase.from("stories").insert({
           user_id: user.id,
           media_path: mediaPath,
           media_type: mediaType,
-          text_content: storyText.trim() || null,
+          text_content: `[[VYBE_STORY_EDIT:${storyStyle}]]\n${storyText.trim()}`.slice(0, 500),
           expires_at: new Date(Date.now() + STORY_DURATION).toISOString(),
         });
 
@@ -1430,7 +1601,7 @@ export default function Stories() {
 
         {showStoryComposer && (
           <div
-            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4"
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-3"
             onClick={() => {
               if (uploading) return;
               setShowStoryComposer(false);
@@ -1438,11 +1609,11 @@ export default function Stories() {
             }}
           >
             <div
-              className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+              className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-950">Add text to your story</h3>
+              <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+                <div><h3 className="text-lg font-bold text-gray-950">Edit your story</h3><p className="text-xs text-gray-500">Crop, style, and move your caption before posting</p></div>
                 <button
                   type="button"
                   onClick={() => {
@@ -1451,31 +1622,39 @@ export default function Stories() {
                   }}
                   disabled={uploading}
                   className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 disabled:opacity-50"
-                  aria-label="Close"
+                  aria-label="Close story editor"
                 >
                   <CloseIcon />
                 </button>
               </div>
-              <p className="mb-3 text-sm text-gray-600">
-                {pendingStoryFiles.length} {pendingStoryFiles.length === 1 ? "item" : "items"} selected
-              </p>
-              <textarea
-                value={storyText}
-                onChange={(event) => setStoryText(event.target.value)}
-                maxLength={300}
-                rows={3}
-                placeholder="Write something..."
-                aria-label="Story text"
-                className="w-full resize-none rounded-xl border border-gray-200 px-3 py-3 text-sm outline-none focus:border-gray-400"
-              />
-              <button
-                type="button"
-                onClick={() => void uploadStory()}
-                disabled={uploading}
-                className="mt-4 w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-50"
-              >
-                {uploading ? "Posting..." : "Post story"}
-              </button>
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
+                <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[400px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326]" onPointerMove={moveComposerCaption} onPointerUp={() => { captionDragRef.current = false; }} onPointerCancel={() => { captionDragRef.current = false; }}>
+                  {pendingStoryFiles[0] && storyPreviewUrl && (pendingStoryFiles[0].type.startsWith("video/") ? (
+                    <video src={storyPreviewUrl} muted playsInline controls className="h-full w-full" style={{ objectFit: storyCrop, filter: STORY_FILTERS[storyTheme] }} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={storyPreviewUrl} alt="Story preview" className="h-full w-full" style={{ objectFit: storyCrop, filter: STORY_FILTERS[storyTheme] }} />
+                  ))}
+                  {storyText && <button type="button" onPointerDown={(event) => { event.preventDefault(); captionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className="absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl bg-black/55 px-3 py-2 text-center text-sm font-semibold text-white shadow" style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyText}</button>}
+                  {pendingStoryFiles.length > 1 && <span className="absolute left-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white">{pendingStoryFiles.length} stories</span>}
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Crop</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["cover", "contain"] as const).map((crop) => <button key={crop} type="button" onClick={() => setStoryCrop(crop)} aria-pressed={storyCrop === crop} className={`rounded-xl border px-3 py-2 text-sm font-medium ${storyCrop === crop ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{crop === "cover" ? "Fill screen" : "Fit image"}</button>)}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Theme</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {(Object.keys(STORY_FILTERS) as (keyof typeof STORY_FILTERS)[]).map((theme) => <button key={theme} type="button" onClick={() => setStoryTheme(theme)} aria-pressed={storyTheme === theme} className={`shrink-0 rounded-full border px-3 py-2 text-xs font-semibold capitalize ${storyTheme === theme ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{theme}</button>)}
+                  </div>
+                </div>
+                <label className="block text-sm font-semibold">Add a caption
+                  <textarea value={storyText} onChange={(event) => setStoryText(event.target.value.slice(0, 300))} maxLength={300} rows={2} placeholder="Write something…" aria-label="Story caption" className="mt-2 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm font-normal outline-none focus:border-purple-400" />
+                </label>
+                <button type="button" onClick={() => void uploadStory()} disabled={uploading} className="w-full rounded-xl bg-purple-700 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-800 disabled:opacity-50">{uploading ? "Posting story…" : `Post ${pendingStoryFiles.length > 1 ? "stories" : "story"}`}</button>
+              </div>
             </div>
           </div>
         )}
@@ -1588,7 +1767,8 @@ export default function Stories() {
                     autoPlay
                     playsInline
                     controls
-                    className="h-full w-full object-contain"
+                    className="h-full w-full"
+                    style={{ objectFit: activeMedia.crop ?? "contain", filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[activeMedia.theme ?? "original"] }}
                   />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -1596,15 +1776,19 @@ export default function Stories() {
                     key={`${activeStory.id}-${mediaIndex}`}
                     src={activeMedia.media}
                     alt={`${activeStory.name}'s story`}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full"
+                    style={{ objectFit: activeMedia.crop ?? "cover", filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[activeMedia.theme ?? "original"] }}
                   />
                 )}
               </div>
             )}
 
             {activeMedia?.text && (
-              <div className="pointer-events-none absolute inset-x-5 bottom-[24%] z-[5] flex justify-center">
-                <p className="max-w-full whitespace-pre-wrap break-words rounded-xl bg-black/45 px-4 py-2 text-center text-lg font-semibold text-white shadow-lg">
+              <div
+                className="pointer-events-none absolute z-[5] max-w-[90%] -translate-x-1/2 -translate-y-1/2"
+                style={{ left: `${activeMedia.captionX ?? 50}%`, top: `${activeMedia.captionY ?? 76}%` }}
+              >
+                <p className="whitespace-pre-wrap break-words rounded-xl bg-black/45 px-4 py-2 text-center text-lg font-semibold text-white shadow-lg">
                   {activeMedia.text}
                 </p>
               </div>
@@ -1679,6 +1863,19 @@ export default function Stories() {
                   </button>
                 )}
 
+                {activeStory.own && activeOwnerId && activeMedia && (
+                  <button
+                    type="button"
+                    onClick={() => void deleteActiveStory()}
+                    disabled={deletingStoryId === activeMedia.mediaId}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/25 text-white hover:bg-red-500/45 disabled:opacity-50"
+                    aria-label="Delete this story"
+                    title="Delete story"
+                  >
+                    {deletingStoryId === activeMedia.mediaId ? <span className="text-xs">…</span> : <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.8 14H5.8L5 6m4 4v6m6-6v6" /></svg>}
+                  </button>
+                )}
+
                 <button
                   onClick={() => setPaused((current) => !current)}
                   className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
@@ -1690,9 +1887,11 @@ export default function Stories() {
                 <button
                   onClick={closeViewer}
                   className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-                  aria-label="Close story"
+                  aria-label="Back to stories"
                 >
-                  <CloseIcon />
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M19 12H5m7 7-7-7 7-7" />
+                  </svg>
                 </button>
               </div>
             </div>

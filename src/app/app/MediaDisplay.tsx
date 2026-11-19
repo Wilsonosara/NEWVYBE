@@ -2,10 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 import { getMedia } from "../lib/mediaStorage";
+import type { PostMedia } from "../lib/posts";
 
 let activeViewerScrollLocks = 0;
 let bodyOverflowBeforeViewer = "";
@@ -32,6 +33,7 @@ type MediaDisplayProps = {
   mediaId?: string;
   mediaType?: "image" | "video";
   mediaName?: string;
+  mediaItems?: PostMedia[];
   isViewerOpen?: boolean;
   isViewerTransitionIncoming?: boolean;
   isViewerTransitionOutgoing?: boolean;
@@ -66,6 +68,7 @@ export default function MediaDisplay({
   mediaId,
   mediaType,
   mediaName,
+  mediaItems,
   isViewerOpen,
   isViewerTransitionIncoming = false,
   isViewerTransitionOutgoing = false,
@@ -100,8 +103,103 @@ export default function MediaDisplay({
   const [localViewerOpen, setLocalViewerOpen] = useState(false);
   const isFullscreen = isViewerOpen ?? localViewerOpen;
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const touchStartYRef = useRef<number | null>(null);
+  const [mediaIndex, setMediaIndex] = useState(0);
+  const [mediaSwipeDirection, setMediaSwipeDirection] = useState<"left" | "right" | null>(null);
+  const mediaSwipeTimerRef = useRef<number | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const previewTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const previewSwipeHandledRef = useRef(false);
+  const viewerSwipeHandledRef = useRef(false);
+  const ignorePreviewClickRef = useRef(false);
   const navigationTriggeredRef = useRef(false);
+  const allMedia: PostMedia[] = mediaItems?.length
+    ? mediaItems
+    : mediaId && mediaType
+      ? [{ mediaId, mediaType, mediaName: mediaName || "Post media" }]
+      : [];
+  const visibleMediaIndex = Math.min(mediaIndex, Math.max(0, allMedia.length - 1));
+  const activeMedia = allMedia[visibleMediaIndex];
+  const activeMediaId = activeMedia?.mediaId;
+  const activeMediaType = activeMedia?.mediaType;
+  const activeMediaName = activeMedia?.mediaName;
+  const hasMedia = Boolean(activeMediaId && activeMediaType);
+  const hasCarousel = allMedia.length > 1;
+
+  const moveMedia = useCallback((direction: "next" | "previous") => {
+    if (direction === "next" && visibleMediaIndex >= allMedia.length - 1) return;
+    if (direction === "previous" && visibleMediaIndex <= 0) return;
+    setMediaSwipeDirection(direction === "next" ? "left" : "right");
+    setMediaIndex(direction === "next" ? visibleMediaIndex + 1 : visibleMediaIndex - 1);
+    if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
+    mediaSwipeTimerRef.current = window.setTimeout(() => setMediaSwipeDirection(null), 260);
+  }, [allMedia.length, visibleMediaIndex]);
+
+  useEffect(() => () => {
+    if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
+  }, []);
+
+  const mediaSwipeClass = mediaSwipeDirection === "left"
+    ? "vybe-carousel-slide-left"
+    : mediaSwipeDirection === "right"
+      ? "vybe-carousel-slide-right"
+      : "";
+
+  const openViewerFromPreview = (event: { stopPropagation: () => void }) => {
+    if (ignorePreviewClickRef.current) {
+      event.stopPropagation();
+      ignorePreviewClickRef.current = false;
+      return;
+    }
+    openViewer();
+  };
+
+  const handlePreviewTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const start = previewTouchStartRef.current;
+    const touch = event.changedTouches[0];
+    previewTouchStartRef.current = null;
+    if (previewSwipeHandledRef.current) {
+      previewSwipeHandledRef.current = false;
+      return;
+    }
+    if (!start || !touch || !hasCarousel) return;
+    const dx = start.x - touch.clientX;
+    const dy = start.y - touch.clientY;
+    if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < 35) return;
+    moveMedia(dx > 0 ? "next" : "previous");
+    ignorePreviewClickRef.current = true;
+    window.setTimeout(() => { ignorePreviewClickRef.current = false; }, 450);
+  };
+
+  const handlePreviewTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const start = previewTouchStartRef.current;
+    const touch = event.touches[0];
+    if (!start || !touch || !hasCarousel || previewSwipeHandledRef.current) return;
+    const dx = start.x - touch.clientX;
+    const dy = start.y - touch.clientY;
+    if (Math.abs(dx) < 35 || Math.abs(dx) <= Math.abs(dy)) return;
+    event.preventDefault();
+    moveMedia(dx > 0 ? "next" : "previous");
+    previewSwipeHandledRef.current = true;
+    ignorePreviewClickRef.current = true;
+    window.setTimeout(() => { ignorePreviewClickRef.current = false; }, 450);
+  };
+
+  const handleViewerTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const start = touchStartRef.current;
+    const touch = event.touches[0];
+    if (!start || !touch || viewerSwipeHandledRef.current || isViewerTransitioning) return;
+    const dx = start.x - touch.clientX;
+    const dy = start.y - touch.clientY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= 35) {
+      event.preventDefault();
+      moveByGesture(dx > 0 ? "next" : "previous");
+      viewerSwipeHandledRef.current = true;
+    } else if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) >= 45 && onNavigate) {
+      event.preventDefault();
+      navigateToPost(dy > 0 ? "next" : "previous");
+      viewerSwipeHandledRef.current = true;
+    }
+  };
 
   const openViewer = useCallback(() => {
     setShowMoreMenu(false);
@@ -127,6 +225,17 @@ export default function MediaDisplay({
     }, 350);
   }, [closeViewer, isViewerOpen, isViewerTransitioning, onNavigate]);
 
+  const moveByGesture = useCallback((direction: "next" | "previous") => {
+    const canMoveMedia = direction === "next"
+      ? visibleMediaIndex < allMedia.length - 1
+      : visibleMediaIndex > 0;
+    if (canMoveMedia) {
+      moveMedia(direction);
+    } else if (isFullscreen && onNavigate) {
+      navigateToPost(direction);
+    }
+  }, [allMedia.length, isFullscreen, moveMedia, navigateToPost, onNavigate, visibleMediaIndex]);
+
   const stopViewerClick = (event: { stopPropagation: () => void }) =>
     event.stopPropagation();
 
@@ -139,7 +248,7 @@ export default function MediaDisplay({
       setFailed(false);
     };
 
-    if (!mediaId || !mediaType) {
+    if (!activeMediaId || !activeMediaType) {
       const resetTimeout = window.setTimeout(resetState, 0);
 
       return () => {
@@ -148,7 +257,7 @@ export default function MediaDisplay({
       };
     }
 
-    const currentMediaId: string = mediaId;
+    const currentMediaId: string = activeMediaId;
 
     async function loadMedia() {
       try {
@@ -206,7 +315,7 @@ export default function MediaDisplay({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [mediaId, mediaType]);
+  }, [activeMediaId, activeMediaType]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -222,6 +331,12 @@ export default function MediaDisplay({
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
         navigateToPost("previous");
+      } else if (event.key === "ArrowRight" && hasCarousel) {
+        event.preventDefault();
+        moveMedia("next");
+      } else if (event.key === "ArrowLeft" && hasCarousel) {
+        event.preventDefault();
+        moveMedia("previous");
       }
     }
 
@@ -231,9 +346,7 @@ export default function MediaDisplay({
       unlockPageScroll();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [closeViewer, isFullscreen, navigateToPost]);
-
-  const hasMedia = Boolean(mediaId && mediaType);
+  }, [closeViewer, hasCarousel, isFullscreen, moveMedia, navigateToPost]);
 
   if (!hasMedia && !isFullscreen) {
     return null;
@@ -258,60 +371,93 @@ export default function MediaDisplay({
 
   return (
     <>
-      {hasMedia && <div className="mb-2 w-full overflow-hidden bg-black sm:rounded-xl">
-        {mediaType === "video" ? (
+      {hasMedia && <>
+      <div className="relative mb-2 w-full touch-pan-y overflow-hidden bg-black sm:rounded-xl" onTouchStart={(event) => { const touch = event.touches[0]; previewTouchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null; previewSwipeHandledRef.current = false; }} onTouchMove={handlePreviewTouchMove} onTouchEnd={handlePreviewTouchEnd}>
+        {activeMediaType === "video" ? (
           <video
+            key={activeMediaId}
             src={mediaUrl}
             controls
             playsInline
             preload="metadata"
-            aria-label={mediaName || "Post video"}
-            onClick={openViewer}
-            className="block max-h-[85vh] w-full cursor-pointer object-contain"
+            aria-label={activeMediaName || "Post video"}
+            onClick={openViewerFromPreview}
+            className={`block max-h-[85vh] w-full cursor-pointer object-contain ${mediaSwipeClass}`}
           />
         ) : (
           <button
             type="button"
-            onClick={openViewer}
+            onClick={openViewerFromPreview}
             aria-label="Open image full screen"
             className="block w-full cursor-zoom-in bg-white p-0"
           >
             <img
+              key={activeMediaId}
               src={mediaUrl}
-              alt={mediaName || "Post image"}
+              alt={activeMediaName || "Post image"}
               loading="lazy"
-              className="block h-auto max-h-[85vh] w-full object-contain"
+              className={`block h-auto max-h-[85vh] w-full object-contain ${mediaSwipeClass}`}
             />
           </button>
         )}
+      </div>
+      {hasCarousel && <div className="flex items-center justify-center gap-1.5 pb-2" role="tablist" aria-label="Post media">
+        {allMedia.map((item, index) => <button key={`${item.mediaId}-${index}`} type="button" role="tab" aria-label={`Show media ${index + 1} of ${allMedia.length}`} aria-selected={visibleMediaIndex === index} onClick={() => setMediaIndex(index)} className={`h-1.5 rounded-full transition-all ${visibleMediaIndex === index ? "w-3 bg-[#7d80e8]" : "w-1.5 bg-gray-300"}`} />)}
       </div>}
+      </>}
 
       {isFullscreen && (
         <div
-          className={`fixed inset-0 ${isViewerTransitionIncoming ? "z-[41]" : "z-40"} h-[100dvh] w-screen overflow-hidden bg-black ${isViewerTransitionOutgoing ? "pointer-events-none" : ""} ${isViewerTransitionIncoming ? viewerDirection === "previous" ? "vybe-viewer-enter-down" : "vybe-viewer-enter-up" : ""}`}
+          className={`fixed inset-0 ${isViewerTransitionIncoming ? "z-[41]" : "z-40"} h-[100dvh] w-screen touch-pan-y overflow-hidden bg-black ${isViewerTransitionOutgoing ? "pointer-events-none" : ""} ${isViewerTransitionIncoming ? viewerDirection === "previous" ? "vybe-viewer-enter-down" : "vybe-viewer-enter-up" : ""}`}
           role="dialog"
           aria-modal="true"
-          aria-label="Post viewer. Scroll or swipe to move between posts."
+          aria-label="Post viewer. Swipe left or right to view media, or up and down to move between posts."
           onClick={closeViewer}
           onWheel={(event) => {
-            if (isViewerTransitioning || Math.abs(event.deltaY) < 30 || !onNavigate) return;
+            if (isViewerTransitioning) return;
+            if (hasCarousel && Math.abs(event.deltaX) > Math.abs(event.deltaY) && Math.abs(event.deltaX) >= 30) {
+              event.preventDefault();
+              moveByGesture(event.deltaX > 0 ? "next" : "previous");
+              return;
+            }
+            if (Math.abs(event.deltaX) > Math.abs(event.deltaY) && Math.abs(event.deltaX) >= 30 && isFullscreen && onNavigate) {
+              event.preventDefault();
+              moveByGesture(event.deltaX > 0 ? "next" : "previous");
+              return;
+            }
+            if (Math.abs(event.deltaY) < 30 || !onNavigate) return;
             event.preventDefault();
             navigateToPost(event.deltaY > 0 ? "next" : "previous");
           }}
           onTouchStart={(event) => {
             if (isViewerTransitioning) return;
-            touchStartYRef.current = event.touches[0]?.clientY ?? null;
+            const touch = event.touches[0];
+            touchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+            viewerSwipeHandledRef.current = false;
           }}
+          onTouchMove={handleViewerTouchMove}
           onTouchEnd={(event) => {
             if (isViewerTransitioning) return;
-            const startY = touchStartYRef.current;
-            const endY = event.changedTouches[0]?.clientY;
-            touchStartYRef.current = null;
-
-            if (startY === null || endY === undefined || !onNavigate) return;
-            const distance = startY - endY;
-            if (Math.abs(distance) < 55) return;
-            navigateToPost(distance > 0 ? "next" : "previous");
+            const start = touchStartRef.current;
+            const touch = event.changedTouches[0];
+            touchStartRef.current = null;
+            if (viewerSwipeHandledRef.current) {
+              viewerSwipeHandledRef.current = false;
+              return;
+            }
+            if (!start || !touch) return;
+            const distanceX = start.x - touch.clientX;
+            const distanceY = start.y - touch.clientY;
+            if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) >= 55 && hasCarousel) {
+              moveByGesture(distanceX > 0 ? "next" : "previous");
+              return;
+            }
+            if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) >= 55 && isFullscreen && onNavigate) {
+              moveByGesture(distanceX > 0 ? "next" : "previous");
+              return;
+            }
+            if (Math.abs(distanceY) < 55 || !onNavigate) return;
+            navigateToPost(distanceY > 0 ? "next" : "previous");
           }}
         >
           {!hasMedia ? (
@@ -320,22 +466,24 @@ export default function MediaDisplay({
             </div>
           ) : !mediaUrl ? (
             <div className="absolute inset-0 flex items-center justify-center bg-[#161616] text-sm text-white/70">Loading post…</div>
-          ) : mediaType === "video" ? (
+          ) : activeMediaType === "video" ? (
             <video
+              key={activeMediaId}
               src={mediaUrl}
               controls
               autoPlay
               playsInline
               preload="metadata"
-              aria-label={mediaName || "Full-screen post video"}
-              className="absolute inset-0 h-full w-full object-contain"
+              aria-label={activeMediaName || "Full-screen post video"}
+              className={`absolute inset-0 h-full w-full object-contain ${mediaSwipeClass}`}
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
             <img
+              key={activeMediaId}
               src={mediaUrl}
-              alt={mediaName || "Full-screen post image"}
-              className="absolute inset-0 h-full w-full object-contain"
+              alt={activeMediaName || "Full-screen post image"}
+              className={`absolute inset-0 h-full w-full object-contain ${mediaSwipeClass}`}
               onClick={(event) => event.stopPropagation()}
             />
           )}

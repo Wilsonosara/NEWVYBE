@@ -24,6 +24,24 @@ const worlds = [
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
+function isVideoFile(file: File) {
+  return file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|avi|mpeg|mpeg1|mpeg2|mpg|mpe|mpv|m1v|m2v|vob|ogv|wmv|3gp)$/i.test(file.name);
+}
+
+function getVideoMimeType(file: File) {
+  if (file.type.startsWith("video/")) return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (["mpeg", "mpeg1", "mpeg2", "mpg", "mpe", "mpv", "m1v", "m2v", "vob"].includes(extension || "")) return "video/mpeg";
+  if (["mp4", "m4v"].includes(extension || "")) return "video/mp4";
+  if (extension === "mov") return "video/quicktime";
+  if (extension === "webm") return "video/webm";
+  if (extension === "avi") return "video/x-msvideo";
+  if (extension === "ogv") return "video/ogg";
+  if (extension === "wmv") return "video/x-ms-wmv";
+  if (extension === "3gp") return "video/3gpp";
+  return "video/mp4";
+}
+
 type CropDialogProps = {
   file: File;
   onCancel: () => void;
@@ -408,6 +426,7 @@ function CreatePageContent() {
   const [world, setWorld] = useState("Social");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
+  const [selectedMediaOrder, setSelectedMediaOrder] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
@@ -451,7 +470,10 @@ function CreatePageContent() {
       return () => window.clearTimeout(clearPreview);
     }
 
-    const url = URL.createObjectURL(selectedVideo);
+    const previewSource = selectedVideo.type.startsWith("video/")
+      ? selectedVideo
+      : new Blob([selectedVideo], { type: getVideoMimeType(selectedVideo) });
+    const url = URL.createObjectURL(previewSource);
     const updatePreview = window.setTimeout(
       () => setVideoPreview(url),
       0
@@ -467,13 +489,6 @@ function CreatePageContent() {
     if (!files || files.length === 0) return;
 
     setError("");
-
-    if (selectedVideo) {
-      setSelectedVideo(null);
-      if (videoInputRef.current) {
-        videoInputRef.current.value = "";
-      }
-    }
 
     const incomingFiles = Array.from(files);
     const validImages: File[] = [];
@@ -494,11 +509,12 @@ function CreatePageContent() {
     }
 
     if (validImages.length > 0) {
-      const availableSlots = Math.max(0, 10 - selectedImages.length);
+      const availableSlots = Math.max(0, 10 - selectedImages.length - (selectedVideo ? 1 : 0));
       const accepted = validImages.slice(0, availableSlots);
       setSelectedImages((current) => [...current, ...accepted]);
+      setSelectedMediaOrder((current) => [...current, ...accepted]);
       if (accepted.length < validImages.length) {
-        setError("You can add up to 10 photos to a post.");
+        setError("You can add up to 10 total media items to a post.");
       }
     }
 
@@ -510,8 +526,13 @@ function CreatePageContent() {
   function handleVideoSelection(file?: File) {
     if (!file) return;
 
-    if (!file.type.startsWith("video/")) {
+    if (!isVideoFile(file)) {
       setError("Please select a valid video file.");
+      return;
+    }
+
+    if (selectedImages.length >= 10) {
+      setError("A post can contain up to 10 media items. Remove a photo before adding a video.");
       return;
     }
 
@@ -521,18 +542,16 @@ function CreatePageContent() {
     }
 
     setError("");
-    setSelectedImages([]);
     setSelectedVideo(file);
-
-    if (photoInputRef.current) {
-      photoInputRef.current.value = "";
-    }
+    setSelectedMediaOrder((current) => [...current, file]);
   }
 
   function removeImage(index: number) {
+    const removedFile = selectedImages[index];
     setSelectedImages((current) =>
       current.filter((_, currentIndex) => currentIndex !== index)
     );
+    setSelectedMediaOrder((current) => current.filter((file) => file !== removedFile));
 
     if (photoInputRef.current) {
       photoInputRef.current.value = "";
@@ -541,15 +560,18 @@ function CreatePageContent() {
 
   function applyImageCrop(file: File) {
     if (cropIndex === null) return;
+    const previousFile = selectedImages[cropIndex];
     setSelectedImages((current) =>
       current.map((image, index) => (index === cropIndex ? file : image))
     );
+    setSelectedMediaOrder((current) => current.map((item) => item === previousFile ? file : item));
     setCropIndex(null);
   }
 
   function clearMedia() {
     setSelectedImages([]);
     setSelectedVideo(null);
+    setSelectedMediaOrder([]);
 
     if (photoInputRef.current) {
       photoInputRef.current.value = "";
@@ -590,12 +612,7 @@ function CreatePageContent() {
     setError("");
 
     try {
-      const filesToPublish =
-        selectedImages.length > 0
-          ? selectedImages
-          : selectedVideo
-            ? [selectedVideo]
-            : [];
+      const filesToPublish = selectedMediaOrder;
 
       const postContent = [
         post.trim(),
@@ -671,11 +688,11 @@ function CreatePageContent() {
             <div className="mt-2">
               <p className="mb-2 text-sm font-semibold text-[#344957]">Add media</p>
               <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Media type">
-                <button type="button" onClick={() => photoInputRef.current?.click()} disabled={Boolean(selectedVideo) || isPublishing || selectedImages.length >= 10} className="rounded-full bg-[#eef0f7] px-4 py-2 text-sm font-medium text-[#445563] hover:bg-[#e4e7f2] disabled:opacity-50">Images</button>
-                <button type="button" onClick={() => videoInputRef.current?.click()} disabled={selectedImages.length > 0 || isPublishing} className="rounded-full bg-[#eef0f7] px-4 py-2 text-sm font-medium text-[#445563] hover:bg-[#e4e7f2] disabled:opacity-50">Video</button>
+                <button type="button" onClick={() => photoInputRef.current?.click()} disabled={isPublishing || selectedImages.length + (selectedVideo ? 1 : 0) >= 10} className="rounded-full bg-[#eef0f7] px-4 py-2 text-sm font-medium text-[#445563] hover:bg-[#e4e7f2] disabled:opacity-50">Add photos</button>
+                <button type="button" onClick={() => videoInputRef.current?.click()} disabled={Boolean(selectedVideo) || isPublishing || selectedImages.length >= 10} className="rounded-full bg-[#eef0f7] px-4 py-2 text-sm font-medium text-[#445563] hover:bg-[#e4e7f2] disabled:opacity-50">Add video</button>
                 <span className="rounded-full px-4 py-2 text-sm text-gray-400" title="Audio posting will be available when VYBE has a music license">Audio</span>
               </div>
-              <p className="mb-3 text-xs text-[#8996a2]">Choose up to 10 photos or one video · 50 MB max per file</p>
+              <p className="mb-3 text-xs text-[#8996a2]">Choose up to 10 items, including photos and one video · 50 MB max per file</p>
             </div>
 
             {(selectedImages.length > 0 || !selectedVideo) && (
@@ -688,10 +705,14 @@ function CreatePageContent() {
                   {selectedImages.length > 0 && (
                     <button
                       type="button"
-                      onClick={clearMedia}
+                      onClick={() => {
+                        setSelectedImages([]);
+                        setSelectedMediaOrder((current) => selectedVideo ? current.filter((item) => item === selectedVideo) : []);
+                        if (photoInputRef.current) photoInputRef.current.value = "";
+                      }}
                       className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
                     >
-                      Remove all
+                      Remove photos
                     </button>
                   )}
                 </div>
@@ -701,7 +722,7 @@ function CreatePageContent() {
                     <button
                       type="button"
                       onClick={() => photoInputRef.current?.click()}
-                      disabled={Boolean(selectedVideo) || isPublishing}
+                      disabled={isPublishing || selectedImages.length + (selectedVideo ? 1 : 0) >= 10}
                       aria-label="Add another photo"
                       className="flex aspect-square items-center justify-center rounded-2xl bg-[#f1f3f8] text-3xl font-light text-[#687987] transition hover:bg-[#e8ebf4] disabled:opacity-50"
                     >
@@ -757,7 +778,11 @@ function CreatePageContent() {
 
                 <button
                   type="button"
-                  onClick={clearMedia}
+                  onClick={() => {
+                    setSelectedVideo(null);
+                    setSelectedMediaOrder((current) => current.filter((item) => item !== selectedVideo));
+                    if (videoInputRef.current) videoInputRef.current.value = "";
+                  }}
                   className="absolute right-3 top-3 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
                 >
                   Remove video
@@ -836,7 +861,7 @@ function CreatePageContent() {
               <input
                 ref={videoInputRef}
                 type="file"
-                accept="video/*"
+                  accept="video/*,.mp4,.m4v,.mov,.webm,.avi,.mpeg,.mpeg1,.mpeg2,.mpg,.mpe,.mpv,.m1v,.m2v,.vob,.ogv,.wmv,.3gp"
                 className="hidden"
                 onChange={(event) =>
                   handleVideoSelection(event.target.files?.[0])
@@ -845,9 +870,10 @@ function CreatePageContent() {
 
               {hasMedia && (
                 <span className="max-w-full truncate text-xs text-gray-500">
-                  {selectedImages.length > 0
-                    ? `${selectedImages.length} photo${selectedImages.length === 1 ? "" : "s"} selected`
-                    : selectedVideo?.name}
+                  {[
+                    selectedImages.length > 0 ? `${selectedImages.length} photo${selectedImages.length === 1 ? "" : "s"}` : "",
+                    selectedVideo?.name || "",
+                  ].filter(Boolean).join(" + ")}
                 </span>
               )}
             </div>

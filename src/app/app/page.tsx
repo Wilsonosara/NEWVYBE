@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
@@ -39,6 +40,15 @@ type ShareProfile = {
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
+};
+
+type StoryShareDraft = {
+  postId: number;
+  userId: string;
+  blob: Blob;
+  mediaUrl: string;
+  isVideo: boolean;
+  extension: string;
 };
 
 type FeedProfile = {
@@ -659,14 +669,33 @@ export default function AppHome() {
   const [sharedPost, setSharedPost] = useState<number | null>(null);
 
   const [shareDialogPost, setShareDialogPost] = useState<number | null>(null);
+  const [shareMode, setShareMode] = useState<"options" | "friends" | "story-editor">("options");
+  const [storyShareDraft, setStoryShareDraft] = useState<StoryShareDraft | null>(null);
+  const [storyShareCaption, setStoryShareCaption] = useState("");
+  const [storyShareCrop, setStoryShareCrop] = useState<"cover" | "contain">("cover");
+  const [storyShareTheme, setStoryShareTheme] = useState<"original" | "warm" | "cool" | "mono" | "vivid">("original");
+  const [storyCaptionPosition, setStoryCaptionPosition] = useState({ x: 50, y: 76 });
+  const storyCaptionDragRef = useRef(false);
+
+  const updateStoryCaptionPosition = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!storyCaptionDragRef.current) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    setStoryCaptionPosition({
+      x: Math.min(92, Math.max(8, ((event.clientX - bounds.left) / bounds.width) * 100)),
+      y: Math.min(92, Math.max(8, ((event.clientY - bounds.top) / bounds.height) * 100)),
+    });
+  };
   const [shareProfiles, setShareProfiles] = useState<ShareProfile[]>([]);
   const [shareSearch, setShareSearch] = useState("");
   const [shareLoading, setShareLoading] = useState(false);
+  const [shareStoryBusy, setShareStoryBusy] = useState(false);
   const [shareSendingTo, setShareSendingTo] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState("");
 
   const [moreOptions, setMoreOptions] = useState<number | null>(null);
   const [highlightedPost, setHighlightedPost] = useState<number | null>(null);
+  const handledPostScrollRef = useRef<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [followedAuthors, setFollowedAuthors] = useState<string[]>([]);
   const [pendingFollowAuthors, setPendingFollowAuthors] = useState<string[]>([]);
@@ -1031,6 +1060,7 @@ export default function AppHome() {
     const postParam = params.get("post");
 
     if (!postParam) return;
+    if (handledPostScrollRef.current === postParam) return;
 
     const postId = Number(postParam);
 
@@ -1043,6 +1073,7 @@ export default function AppHome() {
       const postElement = document.getElementById(`post-${postId}`);
 
       if (postElement) {
+        handledPostScrollRef.current = postParam;
         setHighlightedPost(postId);
         postElement.scrollIntoView({
           behavior: "smooth",
@@ -1614,6 +1645,13 @@ export default function AppHome() {
 
   const handleShare = async (postId: number) => {
     setShareDialogPost(postId);
+    setShareMode("options");
+    if (storyShareDraft?.mediaUrl) URL.revokeObjectURL(storyShareDraft.mediaUrl);
+    setStoryShareDraft(null);
+    setStoryShareCaption("");
+    setStoryShareCrop("cover");
+    setStoryShareTheme("original");
+    setStoryCaptionPosition({ x: 50, y: 76 });
     setShareSearch("");
     setShareStatus("");
     setShareLoading(true);
@@ -1667,6 +1705,171 @@ export default function AppHome() {
     } catch {
       window.prompt(tr("copyPrompt"), shareUrl);
       setShareStatus(tr("copyManually"));
+    }
+  };
+
+  const sharePostToStory = async (postId: number) => {
+    if (shareStoryBusy) return;
+    setShareStoryBusy(true);
+    setShareStatus("");
+    try {
+      const supabase = createClient();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) throw new Error(tr("pleaseLogInShare"));
+
+      const { data: post, error: postError } = await supabase
+        .from("posts")
+        .select("content, media_path, media_type, media_items")
+        .eq("id", postId)
+        .maybeSingle();
+      if (postError) throw postError;
+      if (!post) throw new Error("This post could not be found.");
+
+      const mediaItems = Array.isArray(post.media_items) ? post.media_items : [];
+      const firstMedia = mediaItems[0] as { mediaId?: string; mediaType?: string } | undefined;
+      const mediaId = (post.media_path as string | null) || firstMedia?.mediaId || "";
+      const mediaType = ((post.media_type as string | null) || firstMedia?.mediaType || "image").toLowerCase();
+      let mediaBlob: Blob;
+      let extension: string;
+
+      if (mediaId) {
+        const storagePath = mediaId.startsWith("post-media/")
+          ? mediaId.slice("post-media/".length)
+          : mediaId;
+        const { data, error } = await supabase.storage.from("post-media").download(storagePath);
+        if (error || !data) throw error || new Error("Could not load this post's media.");
+        mediaBlob = data;
+        extension = storagePath.split(".").pop()?.toLowerCase() || (mediaType === "video" ? "mp4" : "jpg");
+      } else {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1080;
+        canvas.height = 1920;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not create a story card.");
+        const gradient = context.createLinearGradient(0, 0, 1080, 1920);
+        gradient.addColorStop(0, "#6422d8");
+        gradient.addColorStop(1, "#18102d");
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#ffffff";
+        context.font = "bold 64px sans-serif";
+        context.fillText("VYBE.", 88, 210);
+        context.font = "48px sans-serif";
+        const words = String(post.content || "Shared a post on VYBE").split(/\s+/);
+        let line = "";
+        let y = 620;
+        for (const word of words) {
+          const nextLine = line ? `${line} ${word}` : word;
+          if (context.measureText(nextLine).width > 900 && line) {
+            context.fillText(line, 88, y);
+            line = word;
+            y += 72;
+          } else line = nextLine;
+          if (y > 1300) break;
+        }
+        if (line && y <= 1300) context.fillText(line, 88, y);
+        context.font = "32px sans-serif";
+        context.fillStyle = "#ddd0ff";
+        context.fillText("Open the post on VYBE", 88, 1640);
+        mediaBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not create a story image.")), "image/png");
+        });
+        extension = "png";
+      }
+      if (storyShareDraft?.mediaUrl) URL.revokeObjectURL(storyShareDraft.mediaUrl);
+      const mediaUrl = URL.createObjectURL(mediaBlob);
+      setStoryShareDraft({
+        postId,
+        userId: user.id,
+        blob: mediaBlob,
+        mediaUrl,
+        isVideo: mediaType === "video" && !!mediaId,
+        extension,
+      });
+      setStoryShareCaption(String(post.content || "").trim().slice(0, 180));
+      setStoryShareCrop("cover");
+      setStoryShareTheme("original");
+      setStoryCaptionPosition({ x: 50, y: 76 });
+      setShareMode("story-editor");
+    } catch (error) {
+      console.error("Could not share post to story:", error);
+      setShareStatus(error instanceof Error ? error.message : "Could not share this post to your story.");
+    } finally {
+      setShareStoryBusy(false);
+    }
+  };
+
+  const publishStoryDraft = async () => {
+    const draft = storyShareDraft;
+    if (!draft || shareStoryBusy) return;
+    setShareStoryBusy(true);
+    setShareStatus("");
+    try {
+      const supabase = createClient();
+      let mediaBlob = draft.blob;
+      let extension = draft.extension;
+
+      if (!draft.isVideo) {
+        const image = new Image();
+        image.src = draft.mediaUrl;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = 1080;
+        canvas.height = 1920;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not prepare the story image.");
+        const backgrounds = { original: "#191326", warm: "#493023", cool: "#172b43", mono: "#202020", vivid: "#33145d" };
+        context.fillStyle = backgrounds[storyShareTheme];
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const scale = storyShareCrop === "cover"
+          ? Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight)
+          : Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+        const drawWidth = image.naturalWidth * scale;
+        const drawHeight = image.naturalHeight * scale;
+        const filters = { original: "none", warm: "sepia(0.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" };
+        context.filter = filters[storyShareTheme];
+        context.drawImage(image, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+        mediaBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not prepare the story image.")), "image/png");
+        });
+        extension = "png";
+      }
+
+      const storyPath = `${draft.userId}/stories/${crypto.randomUUID()}.${extension}`;
+      const contentType = draft.isVideo ? mediaBlob.type || "video/mp4" : "image/png";
+      const { error: uploadError } = await supabase.storage.from("post-media").upload(storyPath, mediaBlob, { contentType, upsert: false });
+      if (uploadError) throw uploadError;
+
+      const storyStyle = encodeURIComponent(JSON.stringify({
+        crop: draft.isVideo ? storyShareCrop : "cover",
+        theme: draft.isVideo ? storyShareTheme : "original",
+        captionX: storyCaptionPosition.x,
+        captionY: storyCaptionPosition.y,
+      }));
+      const storyText = [storyShareCaption.trim(), `Shared post: ${getShareUrl(draft.postId)}`].filter(Boolean).join("\n");
+      const { error: storyError } = await supabase.from("stories").insert({
+        user_id: draft.userId,
+        media_path: storyPath,
+        media_type: draft.isVideo ? "video" : "image",
+        text_content: `[[VYBE_STORY_EDIT:${storyStyle}]]\n${storyText}`.slice(0, 500),
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+      if (storyError) {
+        await supabase.storage.from("post-media").remove([storyPath]);
+        throw storyError;
+      }
+
+      URL.revokeObjectURL(draft.mediaUrl);
+      setStoryShareDraft(null);
+      setShareMode("options");
+      setShareStatus("Post shared to your story.");
+      window.dispatchEvent(new Event("project-one-stories-updated"));
+    } catch (error) {
+      console.error("Could not publish edited story:", error);
+      setShareStatus(error instanceof Error ? error.message : "Could not share this post to your story.");
+    } finally {
+      setShareStoryBusy(false);
     }
   };
 
@@ -1881,6 +2084,24 @@ export default function AppHome() {
           </div>
         </section>
 
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight">
+              {tr("forYou")}
+            </h1>
+            <p className="mt-1 text-xs text-gray-500">
+              {tr("postsFromWorld")}
+            </p>
+          </div>
+
+          <Link
+            href="/app/explore"
+            className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold transition hover:bg-gray-100"
+          >
+            {tr("discover")}
+          </Link>
+        </div>
+
         {saveStatus && (
           <p
             role="status"
@@ -1970,7 +2191,7 @@ export default function AppHome() {
                 key={post.id}
                 className={`min-w-0 overflow-hidden border-b border-gray-200 pb-5 transition-all duration-700 ${
                   highlightedPost === post.id
-                    ? "rounded-xl bg-yellow-50 ring-2 ring-yellow-300 ring-offset-4"
+                    ? "rounded-xl bg-purple-50 ring-2 ring-purple-300 ring-offset-4"
                     : ""
                 }`}
               >
@@ -2078,6 +2299,7 @@ export default function AppHome() {
                   mediaId={post.mediaId}
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
+                  mediaItems={post.mediaItems}
                   isViewerOpen={viewerPostId === post.id || outgoingViewerPostId === post.id}
                   isViewerTransitionIncoming={viewerPostId === post.id && viewerTransitioning}
                   isViewerTransitionOutgoing={outgoingViewerPostId === post.id}
@@ -2433,10 +2655,12 @@ export default function AppHome() {
           onMouseDown={(event) => {
             if (
               event.target === event.currentTarget &&
-              shareSendingTo === null
+              shareSendingTo === null && !shareStoryBusy
             ) {
               setShareDialogPost(null);
               setShareStatus("");
+              if (storyShareDraft?.mediaUrl) URL.revokeObjectURL(storyShareDraft.mediaUrl);
+              setStoryShareDraft(null);
             }
           }}
         >
@@ -2444,7 +2668,7 @@ export default function AppHome() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="share-post-title"
-            className="max-h-[85vh] w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+            className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <h2 id="share-post-title" className="text-base font-bold">
@@ -2455,9 +2679,11 @@ export default function AppHome() {
                 type="button"
                 aria-label={tr("closeShare")}
                 onClick={() => {
-                  if (shareSendingTo === null) {
+                  if (shareSendingTo === null && !shareStoryBusy) {
                     setShareDialogPost(null);
                     setShareStatus("");
+                    if (storyShareDraft?.mediaUrl) URL.revokeObjectURL(storyShareDraft.mediaUrl);
+                    setStoryShareDraft(null);
                   }
                 }}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-gray-500 hover:bg-gray-100"
@@ -2466,179 +2692,72 @@ export default function AppHome() {
               </button>
             </div>
 
-            <div className="space-y-4 p-5">
-              <button
-                type="button"
-                onClick={() => void copyPostLink(shareDialogPost)}
-                className="flex w-full items-center gap-3 rounded-xl border border-gray-200 p-3 text-left transition hover:bg-gray-50"
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M10 13a5 5 0 0 0 7.07 0l3-3A5 5 0 0 0 13 2.93l-1.72 1.71" />
-                    <path d="M14 11a5 5 0 0 0-7.07 0l-3 3A5 5 0 0 0 11 21.07l1.71-1.71" />
-                  </svg>
-                </span>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
+              {shareMode === "options" ? (
+                <div className="space-y-3">
+                  <button type="button" disabled={shareSendingTo !== null || shareStoryBusy} onClick={() => void sharePostToStory(shareDialogPost)} className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-4 text-left transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-50">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-purple-100 text-xl text-purple-700">◉</span>
+                    <span><span className="block text-sm font-semibold">{shareStoryBusy ? "Sharing to story…" : "Share to story"}</span><span className="block text-xs text-gray-500">Add this post to your story for 24 hours</span></span>
+                  </button>
+                  <button type="button" onClick={() => setShareMode("friends")} className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-4 text-left transition hover:border-purple-300 hover:bg-purple-50">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-purple-100 text-purple-700"><svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><circle cx="16" cy="8" r="3.2"/><path d="M1.5 19c.2-3.2 2.1-5 5-5h3c2.9 0 4.8 1.8 5 5v1h-13v-1Zm9 0c.2-3.2 2.1-5 5-5h2c2.9 0 4.8 1.8 5 5v1h-12v-1Z"/></svg></span>
+                    <span><span className="block text-sm font-semibold">Share to friends</span><span className="block text-xs text-gray-500">Send this post in a VYBE message</span></span>
+                  </button>
+                  <button type="button" onClick={() => void copyPostLink(shareDialogPost)} className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-4 text-left transition hover:border-purple-300 hover:bg-purple-50">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-100"><svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3A5 5 0 0 0 13 2.93l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3A5 5 0 0 0 11 21.07l1.71-1.71"/></svg></span>
+                    <span><span className="block text-sm font-semibold">Copy post link</span><span className="block text-xs text-gray-500">Copy a link to share outside VYBE</span></span>
+                  </button>
+                </div>
+              ) : shareMode === "story-editor" && storyShareDraft ? (
+                <div className="space-y-4">                  <button type="button" onClick={() => setShareMode("options")} className="text-sm font-semibold text-purple-700 hover:underline">← Back to sharing options</button>
+                  <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[420px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326] shadow-inner" onPointerMove={updateStoryCaptionPosition} onPointerUp={() => { storyCaptionDragRef.current = false; }} onPointerCancel={() => { storyCaptionDragRef.current = false; }}>
+                    {storyShareDraft.isVideo ? (
+                      <video src={storyShareDraft.mediaUrl} muted playsInline controls className={`h-full w-full ${storyShareCrop === "cover" ? "object-cover" : "object-contain"}`} style={{ filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
+                    ) : (
+                      <img src={storyShareDraft.mediaUrl} alt="Story preview" className="h-full w-full object-contain" style={{ objectFit: storyShareCrop, filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
+                    )}
+                    {(storyShareCaption || storyShareDraft.postId) && <button type="button" onPointerDown={(event) => { event.preventDefault(); storyCaptionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className="absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl bg-black/55 px-3 py-2 text-center text-sm font-semibold text-white shadow" style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyShareCaption || "Shared post"}</button>}
+                  </div>
 
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">
-                    {tr("copyLink")}
-                  </span>
-                  <span className="block text-xs text-gray-500">
-                    {tr("directLink")}
-                  </span>
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const shareUrl = getShareUrl(shareDialogPost);
-
-                  try {
-                    if (navigator.share) {
-                      await navigator.share({
-                        title: "VYBE",
-                        text: tr("checkPost"),
-                        url: shareUrl,
-                      });
-                    } else {
-                      await copyPostLink(shareDialogPost);
-                    }
-                  } catch (error) {
-                    if (
-                      !(error instanceof Error && error.name === "AbortError")
-                    ) {
-                      setShareStatus(tr("sharingUnavailable"));
-                    }
-                  }
-                }}
-                className="flex w-full items-center gap-3 rounded-xl border border-gray-200 p-3 text-left transition hover:bg-gray-50"
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="18" cy="5" r="3" />
-                    <circle cx="6" cy="12" r="3" />
-                    <circle cx="18" cy="19" r="3" />
-                    <path d="m8.7 10.7 6.6-4.4M8.7 13.3l6.6 4.4" />
-                  </svg>
-                </span>
-
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">
-                    {tr("shareOutside")}
-                  </span>
-                  <span className="block text-xs text-gray-500">
-                    {tr("deviceSharing")}
-                  </span>
-                </span>
-              </button>
-
-              <div>
-                <label
-                  htmlFor="share-friend-search"
-                  className="mb-2 block text-sm font-semibold"
-                >
-                  {tr("sendFriend")}
-                </label>
-
-                <input
-                  id="share-friend-search"
-                  type="search"
-                  value={shareSearch}
-                  onChange={(event) => setShareSearch(event.target.value)}
-                  placeholder={tr("searchPeople")}
-                  className="w-full rounded-full bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-gray-400"
-                />
-              </div>
-
-              <div className="max-h-52 space-y-1 overflow-y-auto">
-                {shareLoading && (
-                  <p className="py-4 text-center text-sm text-gray-500">
-                    {tr("loadingPeople")}
-                  </p>
-                )}
-
-                {!shareLoading && filteredShareProfiles.length === 0 && (
-                  <p className="py-4 text-center text-sm text-gray-500">
-                    {shareProfiles.length === 0
-                      ? tr("noProfiles")
-                      : tr("noMatches")}
-                  </p>
-                )}
-
-                {!shareLoading &&
-                  filteredShareProfiles.map((profile) => (
-                    <div
-                      key={profile.id}
-                      className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-gray-50"
-                    >
-                      {profile.avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={profile.avatar_url}
-                          alt=""
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-700">
-                          {(profile.display_name || profile.username || "?")
-                            .charAt(0)
-                            .toUpperCase()}
-                        </div>
-                      )}
-
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">
-                          {profile.display_name ||
-                            profile.username ||
-                            "VYBE user"}
-                        </p>
-
-                        {profile.username && (
-                          <p className="truncate text-xs text-gray-500">
-                            @{profile.username.replace(/^@/, "")}
-                          </p>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={shareSendingTo !== null}
-                        onClick={() => void sendPostToFriend(profile)}
-                        className="shrink-0 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold transition hover:bg-gray-100 disabled:opacity-50"
-                      >
-                        {shareSendingTo === profile.id
-                          ? tr("sending")
-                          : tr("send")}
-                      </button>
+                  <div>
+                    <p className="mb-2 text-sm font-semibold">Crop</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["cover", "contain"] as const).map((crop) => <button key={crop} type="button" onClick={() => setStoryShareCrop(crop)} aria-pressed={storyShareCrop === crop} className={`rounded-xl border px-3 py-2 text-sm font-medium capitalize ${storyShareCrop === crop ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{crop === "cover" ? "Fill screen" : "Fit image"}</button>)}
                     </div>
-                  ))}
-              </div>
+                  </div>
 
-              {shareStatus && (
-                <p
-                  role="status"
-                  className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600"
-                >
-                  {shareStatus}
-                </p>
+                  <div>
+                    <p className="mb-2 text-sm font-semibold">Theme</p>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {(["original", "warm", "cool", "mono", "vivid"] as const).map((theme) => <button key={theme} type="button" onClick={() => setStoryShareTheme(theme)} aria-pressed={storyShareTheme === theme} className={`shrink-0 rounded-full border px-3 py-2 text-xs font-semibold capitalize ${storyShareTheme === theme ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{theme}</button>)}
+                    </div>
+                  </div>
+
+                  <label className="block text-sm font-semibold">Add a caption
+                    <textarea value={storyShareCaption} onChange={(event) => setStoryShareCaption(event.target.value.slice(0, 180))} maxLength={180} rows={2} placeholder="Write something…" className="mt-2 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm font-normal outline-none focus:border-purple-400" />
+                  </label>
+
+                  <button type="button" onClick={() => void publishStoryDraft()} disabled={shareStoryBusy} className="w-full rounded-xl bg-purple-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-purple-800 disabled:opacity-60">{shareStoryBusy ? "Posting story…" : "Post story"}</button>
+                </div>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setShareMode("options")} className="text-sm font-semibold text-purple-700 hover:underline">← Back to sharing options</button>
+                  <label htmlFor="share-friend-search" className="block text-sm font-semibold">{tr("sendFriend")}</label>
+                  <input id="share-friend-search" type="search" value={shareSearch} onChange={(event) => setShareSearch(event.target.value)} placeholder={tr("searchPeople")} className="w-full rounded-full bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-gray-400" />
+                  <div className="max-h-[45dvh] space-y-1 overflow-y-auto overscroll-contain">
+                    {shareLoading && <p className="py-4 text-center text-sm text-gray-500">{tr("loadingPeople")}</p>}
+                    {!shareLoading && filteredShareProfiles.length === 0 && <p className="py-4 text-center text-sm text-gray-500">{shareProfiles.length === 0 ? tr("noProfiles") : tr("noMatches")}</p>}
+                    {!shareLoading && filteredShareProfiles.map((profile) => (
+                      <div key={profile.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-gray-50">
+                        {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-700">{(profile.display_name || profile.username || "?").charAt(0).toUpperCase()}</div>}
+                        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{profile.display_name || profile.username || "VYBE user"}</p>{profile.username && <p className="truncate text-xs text-gray-500">@{profile.username.replace(/^@/, "")}</p>}</div>
+                        <button type="button" disabled={shareSendingTo !== null} onClick={() => void sendPostToFriend(profile)} className="shrink-0 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold transition hover:bg-gray-100 disabled:opacity-50">{shareSendingTo === profile.id ? tr("sending") : tr("send")}</button>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
+              {shareStatus && <p role="status" className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">{shareStatus}</p>}
             </div>
           </section>
         </div>
