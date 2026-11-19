@@ -1449,7 +1449,6 @@ export default function Stories() {
     <>
       <section className="space-y-6">
         <div>
-          <h3 className="mb-3 text-lg font-bold text-gray-950">Friends</h3>
           <div className="flex gap-4 overflow-x-auto pb-1">
             {loadingStories ? (
               <div className="py-5 text-sm text-gray-400">Loading stories…</div>
@@ -1532,7 +1531,7 @@ export default function Stories() {
 
         <div>
           <div className="mb-3 flex items-center gap-1">
-            <h3 className="text-lg font-bold text-gray-950">For you</h3>
+            <h3 className="text-lg font-bold text-gray-950">Friends</h3>
             <span aria-hidden="true" className="text-2xl leading-none text-gray-500">›</span>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2">
