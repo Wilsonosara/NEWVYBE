@@ -819,6 +819,24 @@ export default function MessagesPage() {
     [supabase]
   );
 
+  const markMessageNotificationsAsRead = useCallback(async (userId: string) => {
+    if (!userId) return;
+    const { error: updateError } = await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("type", "message")
+      .is("read_at", null);
+
+    if (updateError) {
+      console.error("Could not clear unread message notifications:", updateError);
+      return;
+    }
+
+    setUnreadByUser({});
+    window.dispatchEvent(new Event("project-one-notifications-updated"));
+  }, [supabase]);
+
   useEffect(() => {
     let active = true;
 
@@ -841,6 +859,7 @@ export default function MessagesPage() {
         setMyId(userId);
 
         await loadData(userId);
+        await markMessageNotificationsAsRead(userId);
 
         if (!active) return;
 
@@ -880,7 +899,7 @@ export default function MessagesPage() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, loadData, markConversationAsRead]);
+  }, [supabase, loadData, markConversationAsRead, markMessageNotificationsAsRead]);
 
   useEffect(() => {
     if (!myId) return;

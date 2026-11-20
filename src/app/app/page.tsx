@@ -698,6 +698,7 @@ export default function AppHome() {
   const [highlightedPost, setHighlightedPost] = useState<number | null>(null);
   const handledPostScrollRef = useRef<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [followedAuthors, setFollowedAuthors] = useState<string[]>([]);
   const [pendingFollowAuthors, setPendingFollowAuthors] = useState<string[]>([]);
   const [viewerPostId, setViewerPostId] = useState<number | null>(null);
@@ -816,6 +817,58 @@ export default function AppHome() {
       active = false;
     };
   }, [posts]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+
+    let active = true;
+    const supabase = createClient();
+    const refreshUnreadCount = async () => {
+      const [{ count, error }, localNotifications] = await Promise.all([
+        supabase
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", currentUserId)
+          .is("read_at", null),
+        Promise.resolve().then(() => {
+          try {
+            const saved = localStorage.getItem(NOTIFICATIONS_KEY);
+            return saved ? (JSON.parse(saved) as SimulatedNotification[]) : [];
+          } catch {
+            return [];
+          }
+        }),
+      ]);
+
+      if (!active) return;
+      if (error) console.error("Could not load unread notification count:", error);
+      const localUnread = localNotifications.filter((notification) => notification.unread).length;
+      setUnreadNotificationCount((count ?? 0) + localUnread);
+    };
+
+    void refreshUnreadCount();
+    window.addEventListener("project-one-notifications-updated", refreshUnreadCount);
+    const channel = supabase
+      .channel(`notification-badge-${currentUserId}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "notifications",
+        filter: `user_id=eq.${currentUserId}`,
+      }, () => void refreshUnreadCount())
+      .subscribe();
+    const refreshTimer = window.setInterval(() => void refreshUnreadCount(), 30_000);
+
+    return () => {
+      active = false;
+      window.removeEventListener("project-one-notifications-updated", refreshUnreadCount);
+      window.clearInterval(refreshTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [currentUserId]);
 
   useEffect(() => {
     let active = true;
@@ -2060,9 +2113,9 @@ export default function AppHome() {
 
           <Link
             href="/app/notifications"
-            aria-label={tr("notifications")}
+            aria-label={`${tr("notifications")}: ${unreadNotificationCount}`}
             title={tr("notifications")}
-            className="flex h-10 w-10 items-center justify-center rounded-full text-gray-800 transition hover:bg-gray-100"
+            className="relative flex h-10 w-10 items-center justify-center rounded-full text-gray-800 transition hover:bg-gray-100"
           >
             <svg
               viewBox="0 0 24 24"
@@ -2076,6 +2129,9 @@ export default function AppHome() {
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
               <path d="M10 21h4" />
             </svg>
+            <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
+              {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+            </span>
           </Link>
         </header>
 
