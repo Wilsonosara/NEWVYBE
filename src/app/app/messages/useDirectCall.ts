@@ -203,7 +203,10 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     inboxChannelRef.current = channel;
     channel.subscribe((status, error) => {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        setCallError(error?.message || "Call signaling is unavailable. Apply the latest messaging database migration.");
+        console.error(
+          "Direct call inbox subscription failed. Apply the latest messaging database migration.",
+          error?.message || status
+        );
       }
     });
     return () => {
