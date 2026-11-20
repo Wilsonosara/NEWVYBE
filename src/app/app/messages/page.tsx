@@ -561,6 +561,7 @@ function getMessageParts(content: string): MessageParts {
     .replace(/\n?\[\[VYBE_DIRECT_AUDIO:[^\]]+\]\]/, "")
     .replace(/\n?\[\[PROJECT_ONE_SHARED_IMAGE:https?:\/\/[^\]]+\]\]/, "")
     .replace(/\n?\[\[PROJECT_ONE_SHARED_POST:\d+\]\]/, "")
+    .replace(/(^|\n)[^\n]*\/app\?[^\s\n]*\bpost=\d+[^\n]*(?=\n|$)/g, "$1")
     .trim();
 
   return {

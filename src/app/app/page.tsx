@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "../../../utils/supabase/client";
 import { usePosts, type PostComment } from "./PostContext";
 import Stories from "./Stories";
@@ -617,6 +618,7 @@ const feedTranslations: Record<Language, Record<string, string>> = {
 };
 
 export default function AppHome() {
+  const router = useRouter();
   const { language } = useLanguage();
 
   const tr = useCallback(
@@ -1945,16 +1947,14 @@ export default function AppHome() {
       if (!user) throw new Error(tr("pleaseLogInSend"));
 
       const postId = shareDialogPost;
-      const postUrl = getShareUrl(postId);
       const post = posts.find((item) => item.id === postId);
 
-      let postContent = post?.content ?? "";
       let mediaPath = post?.mediaId ?? "";
       let mediaType = post?.mediaType ?? "";
 
       const { data: databasePost, error: postLookupError } = await supabase
         .from("posts")
-        .select("content, media_path, media_type, media_name")
+        .select("media_path, media_type")
         .eq("id", postId)
         .maybeSingle();
 
@@ -1964,10 +1964,6 @@ export default function AppHome() {
           postLookupError
         );
       } else if (databasePost) {
-        if (typeof databasePost.content === "string") {
-          postContent = databasePost.content;
-        }
-
         if (
           typeof databasePost.media_path === "string" &&
           databasePost.media_path.trim()
@@ -1982,10 +1978,6 @@ export default function AppHome() {
           mediaType = databasePost.media_type.trim().toLowerCase();
         }
       }
-
-      const preview = postContent.trim()
-        ? postContent.trim().slice(0, 180)
-        : tr("postPreview");
 
       let imageUrl: string | null = null;
 
@@ -2010,7 +2002,6 @@ export default function AppHome() {
       }
 
       const messageContent = [
-        `${tr("checkPost")}\n${preview}\n${postUrl}`,
         `[[PROJECT_ONE_SHARED_POST:${postId}]]`,
         ...(imageUrl ? [`[[PROJECT_ONE_SHARED_IMAGE:${imageUrl}]]`] : []),
       ].join("\n");
@@ -2030,6 +2021,7 @@ export default function AppHome() {
       );
 
       window.dispatchEvent(new Event("project-one-messages-updated"));
+      router.push(`/app/messages?user=${encodeURIComponent(recipient.id)}`);
     } catch (error) {
       console.error("Could not send shared post:", error);
 
