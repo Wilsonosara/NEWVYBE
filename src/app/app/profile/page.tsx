@@ -15,6 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../../../../utils/supabase/client";
 import { ensureProfileForUser } from "../../../../utils/supabase/ensure-profile";
 import { usePosts } from "../PostContext";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 import type { Post, PostMedia } from "../../lib/posts";
 import { getMedia } from "../../lib/mediaStorage";
 
@@ -83,8 +84,6 @@ function Avatar({
   name: string;
   className: string;
 }) {
-  const initial = name.trim().charAt(0).toUpperCase() || "G";
-
   if (src) {
     return (
       <img
@@ -98,9 +97,9 @@ function Avatar({
   return (
     <div
       aria-label={`${name || "Profile"} profile picture`}
-      className={`${className} flex items-center justify-center bg-gray-100 font-semibold text-gray-700`}
+      className={`${className} flex items-center justify-center bg-gray-100 text-gray-500`}
     >
-      {initial}
+      <ContactAvatarIcon className="h-1/2 w-1/2" />
     </div>
   );
 }
@@ -211,7 +210,7 @@ function ProfilePostTile({ post }: { post: Post }) {
             </div>}
             <div className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-white/10 p-3 text-white">
               <Link href={authorProfileUrl} onClick={() => setViewerOpen(false)} aria-label={`View ${post.author}'s profile`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 text-lg font-bold">
-                {post.author.trim().charAt(0).toUpperCase() || "V"}
+                <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
               </Link>
               <div className="min-w-0 flex-1">
                 <Link href={authorProfileUrl} onClick={() => setViewerOpen(false)} className="block truncate text-sm font-semibold hover:underline">{post.author}</Link>
@@ -1373,9 +1372,24 @@ function ProfilePageContent() {
               Edit Profile
             </button>
           ) : displayedProfile ? (
-            <button type="button" onClick={handleFollow} disabled={followBusy || !currentUserId} className="absolute right-0 top-5 rounded-full border border-[#ddddea] px-4 py-2 text-xs font-semibold text-gray-900 transition hover:bg-purple-50 disabled:opacity-60">
-              {followBusy ? "Please wait..." : isFollowing ? "Following" : "Follow"}
-            </button>
+            <div className="absolute right-0 top-5 flex items-center gap-2">
+              {currentUserId && currentUserId !== displayedProfile.id && (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/app/messages?user=${encodeURIComponent(displayedProfile.id)}`)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#ddddea] px-3 py-2 text-xs font-semibold text-gray-900 transition hover:border-[#7d22ef] hover:bg-purple-50 sm:px-4"
+                  aria-label={`Message ${displayedName}`}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                    <path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.2 8.2 0 0 1-3.7-.9L4 20l1.2-3.4A7.2 7.2 0 0 1 4 12a7.5 7.5 0 0 1 8-7.5 7.5 7.5 0 0 1 8 7Z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Message
+                </button>
+              )}
+              <button type="button" onClick={handleFollow} disabled={followBusy || !currentUserId} className="rounded-full border border-[#ddddea] px-3 py-2 text-xs font-semibold text-gray-900 transition hover:bg-purple-50 disabled:opacity-60 sm:px-4">
+                {followBusy ? "Please wait..." : isFollowing ? "Following" : "Follow"}
+              </button>
+            </div>
           ) : null}
         </div>
 

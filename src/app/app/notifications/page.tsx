@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLanguage, type Language } from "../LanguageProvider";
 import { usePosts } from "../PostContext";
 import { createClient } from "../../../../utils/supabase/client";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 
 type Notification = {
   id: number;
@@ -590,13 +591,6 @@ function NotificationIcon({ type }: { type: string }) {
 function Avatar({ name, src }: { name: string; src?: string }) {
   const [imageFailed, setImageFailed] = useState(false);
 
-  const initials = name
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
   if (src && !imageFailed) {
     return (
       <Image
@@ -612,8 +606,8 @@ function Avatar({ name, src }: { name: string; src?: string }) {
   }
 
   return (
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-200 text-sm font-bold text-gray-700 sm:h-13 sm:w-13">
-      {initials || "?"}
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-500 sm:h-13 sm:w-13">
+      <ContactAvatarIcon className="h-7 w-7" />
     </div>
   );
 }

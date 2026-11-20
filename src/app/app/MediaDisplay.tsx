@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import Link from "next/link";
+import ContactAvatarIcon from "./ContactAvatarIcon";
 import { createClient } from "../../../utils/supabase/client";
 import { getMedia } from "../lib/mediaStorage";
 import type { PostMedia } from "../lib/posts";
@@ -512,7 +513,7 @@ export default function MediaDisplay({
 
           <div className="absolute inset-x-0 bottom-24 z-[2] px-4 pb-3 pr-20 text-[#f6f1e8] sm:px-7 sm:pr-24">
             <div className="mb-3 flex items-center gap-3">
-              <Link href={authorProfileUrl} onClick={closeViewer} aria-label={`View ${authorName}'s profile`} className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white/20 text-lg font-bold text-white">{authorAvatarUrl ? <img src={authorAvatarUrl} alt="" className="h-full w-full object-cover"/> : authorName.charAt(0).toUpperCase()}</Link>
+              <Link href={authorProfileUrl} onClick={closeViewer} aria-label={`View ${authorName}'s profile`} className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white/20 text-white">{authorAvatarUrl ? <img src={authorAvatarUrl} alt="" className="h-full w-full object-cover"/> : <ContactAvatarIcon className="h-7 w-7" />}</Link>
               <div className="min-w-0 flex-1 drop-shadow-lg"><Link href={authorProfileUrl} onClick={closeViewer} className="block truncate font-bold">{authorName}</Link><span className="block truncate text-sm text-white/80">{authorUsername}</span></div>
               {onFollow && <button type="button" disabled={isFollowPending} onClick={(event) => { stopViewerClick(event); onFollow(); }} className="shrink-0 rounded-full bg-[#f4efe6] px-5 py-2.5 text-sm font-semibold text-[#292724] disabled:opacity-60">{isFollowPending ? "…" : isFollowingAuthor ? "Following" : "Follow"}</button>}
             </div>

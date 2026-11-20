@@ -7,13 +7,14 @@ import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage } from "../LanguageProvider";
 import type { Language } from "../LanguageProvider";
 import { usePosts } from "../PostContext";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 
 type Person = {
   id: string;
   name: string;
   username: string;
   bio: string;
-  initials: string;
+  avatarUrl: string | null;
 };
 
 type BlockRelationship = {
@@ -589,7 +590,7 @@ export default function ExplorePage() {
 
         let query = supabase
           .from("profiles")
-          .select("id, username, display_name, bio")
+          .select("id, username, display_name, bio, avatar_url")
           .not("username", "is", null)
           .order("display_name", { ascending: true })
           .limit(30);
@@ -614,21 +615,12 @@ export default function ExplorePage() {
             const username = profile.username!.trim().replace(/^@/, "");
             const name = profile.display_name?.trim() || username;
 
-            const initials =
-              name
-                .split(/\s+/)
-                .filter(Boolean)
-                .slice(0, 2)
-                .map((part: string) => part[0])
-                .join("")
-                .toUpperCase() || "U";
-
             return {
               id: profile.id,
               name,
               username,
               bio: profile.bio || c.member,
-              initials,
+              avatarUrl: profile.avatar_url,
             };
           });
 
@@ -915,9 +907,9 @@ export default function ExplorePage() {
                         "{name}",
                         person.name
                       )}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700 transition hover:bg-gray-200"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200"
                     >
-                      {person.initials}
+                      {person.avatarUrl ? <img src={person.avatarUrl} alt="" className="h-full w-full object-cover" /> : <ContactAvatarIcon className="h-6 w-6" />}
                     </Link>
 
                     <div className="min-w-0 flex-1">

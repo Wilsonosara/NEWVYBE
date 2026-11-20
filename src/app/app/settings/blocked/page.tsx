@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "../../../../../utils/supabase/client";
+import ContactAvatarIcon from "../../ContactAvatarIcon";
 
 type Profile = {
   id: string;
@@ -191,10 +192,6 @@ export default function BlockedAccountsPage() {
     );
   }
 
-  function avatarLabel(profile: Profile) {
-    return displayName(profile).charAt(0).toUpperCase();
-  }
-
   function profileRow(profile: Profile, isBlocked: boolean) {
     const isBusy = busyId === profile.id;
 
@@ -212,7 +209,7 @@ export default function BlockedAccountsPage() {
               className="h-full w-full object-cover"
             />
           ) : (
-            avatarLabel(profile)
+            <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
           )}
         </div>
 

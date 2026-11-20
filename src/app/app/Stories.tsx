@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
+import ContactAvatarIcon from "./ContactAvatarIcon";
 
 type StoryMedia = {
   mediaId: string;
@@ -1964,8 +1965,8 @@ export default function Stories() {
                                   className="h-8 w-8 rounded-full object-cover"
                                 />
                               ) : (
-                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
-                                  {viewer.name.charAt(0).toUpperCase()}
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white/80">
+                                  <ContactAvatarIcon className="h-5 w-5" />
                                 </div>
                               )}
 

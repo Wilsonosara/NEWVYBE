@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "../../../../../../utils/supabase/client";
 import { usePosts } from "../../../PostContext";
+import ContactAvatarIcon from "../../../ContactAvatarIcon";
 import ClubNews from "./ClubNews";
 const FOLLOWED_CLUBS_KEY = "project-one-followed-clubs";
 
@@ -1340,7 +1341,7 @@ export default function ClubPage() {
                       >
                         <div className="flex items-center gap-3">
                           <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f0f0ee] font-black text-gray-700">
-                            {post.author.charAt(0).toUpperCase()}
+                            <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
                           </div>
 
                           <div className="min-w-0">

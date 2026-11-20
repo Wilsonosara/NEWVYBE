@@ -15,6 +15,7 @@ import { createClient } from "../../../utils/supabase/client";
 import { usePosts, type PostComment } from "./PostContext";
 import Stories from "./Stories";
 import MediaDisplay from "./MediaDisplay";
+import ContactAvatarIcon from "./ContactAvatarIcon";
 import { useLanguage, type Language } from "./LanguageProvider";
 
 const SAVED_KEY = "project-one-saved-posts";
@@ -1464,7 +1465,7 @@ export default function AppHome() {
       style={{ marginLeft: `${Math.min(depth * 24, 48)}px` }}
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold text-gray-700">
-        {comment.author.trim().charAt(0).toUpperCase() || "V"}
+        <ContactAvatarIcon className="h-4 w-4 text-gray-500" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="rounded-2xl bg-gray-100 px-3 py-2">
@@ -2191,7 +2192,7 @@ export default function AppHome() {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      authorName.charAt(0).toUpperCase()
+                      <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
                     )}
                   </Link>
 
@@ -2731,7 +2732,7 @@ export default function AppHome() {
                     {!shareLoading && filteredShareProfiles.length === 0 && <p className="py-4 text-center text-sm text-gray-500">{shareProfiles.length === 0 ? tr("noProfiles") : tr("noMatches")}</p>}
                     {!shareLoading && filteredShareProfiles.map((profile) => (
                       <div key={profile.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-gray-50">
-                        {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-700">{(profile.display_name || profile.username || "?").charAt(0).toUpperCase()}</div>}
+                        {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500"><ContactAvatarIcon className="h-5 w-5" /></div>}
                         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{profile.display_name || profile.username || "VYBE user"}</p>{profile.username && <p className="truncate text-xs text-gray-500">@{profile.username.replace(/^@/, "")}</p>}</div>
                         <button type="button" disabled={shareSendingTo !== null} onClick={() => void sendPostToFriend(profile)} className="shrink-0 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold transition hover:bg-gray-100 disabled:opacity-50">{shareSendingTo === profile.id ? tr("sending") : tr("send")}</button>
                       </div>

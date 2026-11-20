@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePosts } from "../PostContext";
 import MediaDisplay from "../MediaDisplay";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 import { createClient } from "../../../../utils/supabase/client";
 
 type Section = "Feed" | "Jobs" | "People";
@@ -1132,7 +1133,7 @@ export default function CareerPage() {
                     <div className="p-4 sm:p-5">
                       <div className="flex items-start gap-3">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-50 text-sm font-bold">
-                          {post.author.charAt(0).toUpperCase()}
+                          <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
                         </div>
 
                         <div className="min-w-0 flex-1">
@@ -1682,7 +1683,7 @@ export default function CareerPage() {
                           />
                         ) : (
                           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-50 text-lg font-semibold">
-                            {displayName.charAt(0).toUpperCase()}
+                            <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
                           </div>
                         )}
 

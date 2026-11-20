@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../../../utils/supabase/client";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 
 type AccountInfo = {
   email: string | null;
@@ -190,8 +191,8 @@ export default function SettingsPage() {
 
             <div className="overflow-hidden rounded-2xl border border-gray-200">
               <div className="flex items-center gap-3 p-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-100 text-lg font-semibold text-gray-700">
-                  {account?.email?.charAt(0).toUpperCase() || "U"}
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500">
+                  <ContactAvatarIcon className="h-7 w-7" />
                 </div>
 
                 <div className="min-w-0 flex-1">

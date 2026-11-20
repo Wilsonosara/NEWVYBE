@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePosts } from "../PostContext";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 
 const clubs = [
   // Premier League
@@ -1666,7 +1667,7 @@ export default function SportsPage() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-green-100 font-black text-green-800">
-                          {post.author.charAt(0).toUpperCase()}
+                          <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold">{post.author}</p>

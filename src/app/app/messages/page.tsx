@@ -7,6 +7,7 @@ import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage, type Language } from "../LanguageProvider";
 import { useOnlinePresence } from "../PresenceProvider";
 import { useDirectCall } from "./useDirectCall";
+import ContactAvatarIcon from "../ContactAvatarIcon";
 
 type Profile = {
   id: string;
@@ -40,6 +41,9 @@ type MessageNotification = {
   type: string;
   read_at: string | null;
 };
+
+const EMOJI_OPTIONS = `😀 😃 😄 😁 😆 😅 😂 🤣 🥲 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🫡 🤫 🫠 🤥 😶 😐 😑 😬 🫨 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 ☠️ 👽 👾 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 🙈 🙉 🙊 💋 💌 💘 💝 💖 💗 💓 💞 💕 💟 ❣️ 💔 ❤️ 🩷 🧡 💛 💚 💙 🩵 💜 🤎 🖤 🩶 🤍 💯 💢 💥 💫 💦 💨 🕳️ 💣 💬 👁️‍🗨️ 🗨️ 🗯️ 💭 💤 👋 🤚 🖐️ ✋ 🖖 🫱 🫲 🫳 🫴 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 🫵 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 🦻 👃 🧠 🫀 🫁 🦷 🦴 👀 👁️ 👅 👄 🫦 👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵 🙍 🙎 🙅 🙆 💁 🙋 🧏 🙇 🤦 🤷 👮 🕵️ 💂 🥷 👷 🤴 👸 👳 👲 🧕 🤵 👰 🤰 🫃 🫄 🤱 👼 🎅 🤶 🧑‍🎄 🦸 🦹 🧙 🧚 🧛 🧜 🧝 🧞 🧟 💆 💇 🚶 🧍 🧎 🏃 💃 🕺 🕴️ 👯 🧖 🧗 🤺 🏇 ⛷️ 🏂 🏌️ 🏄 🚣 🏊 ⛹️ 🏋️ 🚴 🚵 🤸 🤼 🤽 🤾 🤹 🧘 🛀 🛌 🧑‍⚕️ 🧑‍🎓 🧑‍🏫 🧑‍⚖️ 🧑‍🌾 🧑‍🍳 🧑‍🔧 🧑‍💼 🧑‍🔬 🧑‍🎤 🧑‍🚀 🧑‍🚒`.split(" ");
+EMOJI_OPTIONS.push(...`🐵 🐒 🦍 🦧 🐶 🐕 🦮 🐕‍🦺 🐩 🐺 🦊 🦝 🐱 🐈 🦁 🐯 🐅 🐆 🐴 🫎 🫏 🐎 🦄 🦓 🦌 🦬 🐮 🐂 🐃 🐄 🐷 🐖 🐗 🐽 🐏 🐑 🐐 🐪 🐫 🦙 🦒 🐘 🦣 🦏 🦛 🐭 🐁 🐀 🐹 🐰 🐇 🐿️ 🦫 🦔 🦇 🐻 🐨 🐼 🦥 🦦 🦨 🦘 🦡 🐾 🦃 🐔 🐓 🐣 🐤 🐥 🐦 🐧 🕊️ 🦅 🦆 🦢 🦉 🦤 🪶 🦩 🦚 🦜 🪽 🐦‍⬛ 🪿 🐸 🐊 🐢 🦎 🐍 🐲 🐉 🦕 🦖 🐳 🐋 🐬 🦭 🐟 🐠 🐡 🦈 🐙 🐚 🪸 🪼 🦀 🦞 🦐 🦑 🦪 🐌 🦋 🐛 🐜 🐝 🪲 🐞 🦗 🪳 🕷️ 🕸️ 🦂 🦟 🪰 🪱 🦠 💐 🌸 💮 🪷 🏵️ 🌹 🥀 🌺 🌻 🌼 🌷 🪻 🌱 🪴 🌲 🌳 🌴 🌵 🌾 🌿 ☘️ 🍀 🍁 🍂 🍃 🪹 🪺 🍄 🪾 🌰 🦀 🌍 🌎 🌏 🌐 🌑 🌒 🌓 🌔 🌕 🌖 🌗 🌘 🌙 🌚 🌛 🌜 🌝 🌞 🌟 ⭐ 🌠 ☀️ 🌤️ ⛅ 🌥️ ☁️ 🌦️ 🌧️ ⛈️ 🌩️ 🌨️ ❄️ ☃️ ⛄ 🌬️ 💨 🌪️ 🌫️ 🌈 ☔ 💧 💦 🌊 🔥 🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🫒 🥑 🍆 🥔 🥕 🌽 🌶️ 🫑 🥒 🥬 🥦 🧄 🧅 🥜 🫘 🌰 🍞 🥐 🥖 🫓 🥨 🥯 🥞 🧇 🧀 🍖 🍗 🥩 🥓 🍔 🍟 🍕 🌭 🥪 🌮 🌯 🫔 🥙 🧆 🥚 🍳 🥘 🍲 🫕 🥣 🥗 🍿 🧈 🧂 🥫 🍱 🍘 🍙 🍚 🍛 🍜 🍝 🍠 🍢 🍣 🍤 🍥 🥮 🍡 🥟 🥠 🥡 🦪 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🥧 🍫 🍬 🍭 🍮 🍯 🍼 🥛 ☕ 🫖 🍵 🧃 🥤 🧋 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉 🍾 🧊 🥄 🍴 🍽️ 🥢 🧂 ⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🎽 🛹 🛼 🛷 ⛸️ 🥌 🎿 🏆 🥇 🥈 🥉 🏅 🎖️ 🏵️ 🎗️ 🎫 🎟️ 🎪 🤹 🎭 🩰 🎨 🎬 🎤 🎧 🎼 🎹 🥁 🪘 🪇 🎷 🎺 🪗 🎸 🪕 🎻 🪈 🪉 🎮 🕹️ 🎲 ♟️ 🧩 🧸 🪅 🪩 🪆 🃏 🀄 🎴 🎯 🪄 🪅 🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🛵 🏍️ 🛺 🚲 🛴 🛹 🛼 🚏 🛣️ 🛤️ 🛢️ ⛽ 🛞 🚨 🚥 🚦 🛑 🚧 ⚓ 🛟 ⛵ 🚤 🛳️ ⛴️ 🛥️ 🚢 ✈️ 🛩️ 🛫 🛬 🪂 💺 🚁 🚟 🚠 🚡 🚀 🛸 🛰️ 🧳 ⌛ ⏳ ⌚ ⏰ 🕰️ 🕛 🕧 🕐 🕜 🕑 🕝 🕒 🕞 🕓 🕟 🕔 🕠 🕕 🕡 🕖 🕢 🕗 🕣 🕘 🕤 🕙 🕥 🕚 🕦 🌑 🌒 🌓 🌔 🌕 🌖 🌗 🌘 🧭 🗺️ 🗿 🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏔️ 🗻 🏕️ 🏞️ 🏟️ 🏛️ 🏗️ 🧱 🪨 🪵 🛖 🏘️ 🏚️ 🏠 🏡 🏢 🏣 🏤 🏥 🏦 🏨 🏩 🏪 🏫 🏬 🏭 🏯 🏰 💒 🗾 🛝 🛣️ 🛤️ 🗺️ 🎑 🏞️ 🌅 🌄 🌠 🎇 🎆 🌇 🌆 🏙️ 🌃 🌌 🌉 🌁 🧳 🎒 🧵 🪡 🧶 🪢 👓 🕶️ 🥽 🥼 🦺 👔 👕 👖 🧣 🧤 🧥 🧦 👗 👘 🥻 🩱 🩲 🩳 👙 👚 🪭 👛 👜 👝 🛍️ 🎒 🩴 👞 👟 🥾 🥿 👠 👡 🩰 👢 👑 👒 🎩 🎓 🧢 🪖 ⛑️ 📿 💄 💍 💎 🔇 🔈 🔉 🔊 📢 📣 📯 🔔 🔕 🎼 🎵 🎶 🎙️ 🎚️ 🎛️ 🎤 🎧 📻 🎷 🪗 🎸 🎹 🎺 🎻 🥁 📱 📲 ☎️ 📞 📟 📠 🔋 🪫 🔌 💻 🖥️ 🖨️ ⌨️ 🖱️ 🖲️ 💽 💾 💿 📀 🧮 🎥 🎞️ 📽️ 🎬 📺 📷 📸 📹 📼 🔍 🔎 🕯️ 💡 🔦 🏮 🪔 📔 📕 📖 📗 📘 📙 📚 📓 📒 📃 📜 📄 📰 🗞️ 📑 🔖 🏷️ 💰 🪙 💴 💵 💶 💷 💸 💳 🧾 💹 ✉️ 📧 📨 📩 📤 📥 📦 📫 📪 📬 📭 📮 🗳️ ✏️ ✒️ 🖋️ 🖊️ 🖌️ 🖍️ 📝 💼 📁 📂 🗂️ 📅 📆 🗒️ 🗓️ 📇 📈 📉 📊 📋 📌 📍 📎 🖇️ 📏 📐 ✂️ 🗃️ 🗄️ 🗑️ 🔒 🔓 🔏 🔐 🔑 🗝️ 🔨 🪓 ⛏️ ⚒️ 🛠️ 🗡️ ⚔️ 💣 🪃 🏹 🛡️ 🪚 🔧 🪛 🔩 ⚙️ 🗜️ ⚖️ 🦯 🔗 ⛓️ 🪝 🧰 🧲 🪜 🧪 🧫 🧬 🔬 🔭 📡 💉 🩸 💊 🩹 🩺 🩻 🚪 🛗 🪞 🪟 🛏️ 🛋️ 🪑 🚽 🪠 🚿 🛁 🪤 🪒 🧴 🧷 🧹 🧺 🧻 🪣 🧼 🫧 🪥 🧽 🧯 🛒 🚬 ⚰️ 🪦 ⚱️ 🧿 🪬 🗿 🪧 🪪 🏧 🚮 🚰 ♿ 🚹 🚺 🚻 🚼 🚾 🛂 🛃 🛄 🛅 ⚠️ 🚸 ⛔ 🚫 🚳 🚭 🚯 🚱 🚷 📵 🔞 ☢️ ☣️ ⬆️ ↗️ ➡️ ↘️ ⬇️ ↙️ ⬅️ ↖️ ↕️ ↔️ ↩️ ↪️ ⤴️ ⤵️ 🔃 🔄 🔙 🔚 🔛 🔜 🔝 🛐 ⚛️ 🕉️ ✡️ ☸️ ☯️ ✝️ ☦️ ☪️ ☮️ 🕎 🔯 🪯 ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ ⛎ 🔀 🔁 🔂 ▶️ ⏩ ⏭️ ⏯️ ◀️ ⏪ ⏮️ 🔼 ⏫ 🔽 ⏬ ⏸️ ⏹️ ⏺️ ⏏️ 🎦 🔅 🔆 📶 🛜 📳 📴 ♀️ ♂️ ⚧️ ✖️ ➕ ➖ ➗ 🟰 ♾️ ‼️ ⁉️ ❓ ❔ ❕ ❗ 〰️ 💱 💲 ⚕️ ♻️ ⚜️ 🔱 📛 🔰 ⭕ ✅ ☑️ ✔️ ❌ ❎ ➰ ➿ 〽️ ✳️ ✴️ ❇️ ©️ ®️ ™️ #️⃣ *️⃣ 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔠 🔡 🔢 🔣 🔤 🆎 🅰️ 🅱️ 🆑 🆒 🆓 ℹ️ 🆔 Ⓜ️ 🆕 🆖 🅾️ 🆗 🅿️ 🆘 🆙 🆚 🈁 🈂️ 🈷️ 🈶 🈯 🉐 🈹 🈚 🈲 🉑 🈸 🈴 🈳 ㊗️ ㊙️ 🈺 🈵 🔴 🟠 🟡 🟢 🔵 🟣 🟤 ⚫ ⚪ 🟥 🟧 🟨 🟩 🟦 🟪 🟫 ⬛ ⬜ ◼️ ◻️ ◾ ◽ ▪️ ▫️ 🔶 🔷 🔸 🔹 🔺 🔻 💠 🔘 🔳 🔲`.split(" "));
 
 const translations: Record<Language, Record<string, string>> = {
   en: {
@@ -75,6 +79,7 @@ const translations: Record<Language, Record<string, string>> = {
     justNow: "just now",
     lastSeenUnavailable: "Last seen unavailable",
     writeMessage: "Write a message...",
+    emoji: "Add emoji",
     sendMessage: "Send message",
     enterHint: "Press Enter to send · Shift + Enter for a new line",
     yourMessages: "Your messages",
@@ -630,6 +635,8 @@ function getFriendlyMessageError(
   return rawMessage || t("sendFailed");
 }
 
+EMOJI_OPTIONS.push(...`🇳🇬 🇺🇸 🇬🇧 🇨🇦 🇬🇭 🇰🇪 🇿🇦 🇫🇷 🇩🇪 🇧🇷 🇯🇵 🇨🇳 🇮🇳 🇦🇺 🇮🇹 🇪🇸 🇲🇽 🇪🇬 🇹🇷 🇸🇦 🇦🇪 🇳🇿 🇵🇹 🇳🇱 🇸🇪 🇳🇴 🇩🇰 🇫🇮 🇮🇪 🇨🇭 🇦🇷 🇨🇴 🇵🇭 🇸🇬 🇹🇭 🇵🇰 🇧🇩 🇺🇦 🇷🇺 🇰🇷 🇮🇱 🇯🇲 🇹🇿 🇺🇬 🇨🇲 🇸🇳 🇪🇹 🇿🇼 🇲🇦 🇹🇳 🇩🇿 🇵🇱 🇬🇷 🇧🇪 🇦🇹 🇨🇱 🇵🇪 🇻🇪 🇨🇺 🇭🇹 🇵🇦 🇨🇷 🇬🇹 🇭🇳 🇸🇻 🇩🇴 🇵🇷 🏳️ 🏴 🏁 🚩 🏳️‍🌈 🏳️‍⚧️ 🏴‍☠️`.split(" "));
+
 export default function MessagesPage() {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -647,6 +654,7 @@ export default function MessagesPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [voiceMessageFile, setVoiceMessageFile] = useState<File | null>(null);
   const [voiceMessageUrl, setVoiceMessageUrl] = useState<string | null>(null);
@@ -657,6 +665,7 @@ export default function MessagesPage() {
   const [now, setNow] = useState(() => Date.now());
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
@@ -1004,6 +1013,25 @@ export default function MessagesPage() {
     return username.startsWith("@") ? username : `@${username}`;
   }
 
+  function insertEmoji(emoji: string) {
+    const input = messageInputRef.current;
+    if (!input) {
+      setMessage((current) => `${current}${emoji}`);
+      setShowEmojiPicker(false);
+      return;
+    }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const next = `${message.slice(0, start)}${emoji}${message.slice(end)}`;
+    setMessage(next);
+    setShowEmojiPicker(false);
+    requestAnimationFrame(() => {
+      input.focus();
+      const cursor = start + emoji.length;
+      input.setSelectionRange(cursor, cursor);
+    });
+  }
+
   function formatTime(date: string) {
     const localeByLanguage: Record<Language, string> = {
       en: "en",
@@ -1319,12 +1347,7 @@ export default function MessagesPage() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        displayName(profile)
-                          .split(/\s+/)
-                          .map((part) => part[0])
-                          .slice(0, 2)
-                          .join("")
-                          .toUpperCase()
+                        <ContactAvatarIcon className="h-6 w-6 text-gray-400" />
                       )}
 
                       {unread > 0 && (
@@ -1450,12 +1473,7 @@ export default function MessagesPage() {
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    displayName(selectedProfile)
-                      .split(/\s+/)
-                      .map((part) => part[0])
-                      .slice(0, 2)
-                      .join("")
-                      .toUpperCase()
+                    <ContactAvatarIcon className="h-6 w-6 text-gray-400" />
                   )}
                 </div>
 
@@ -1727,6 +1745,17 @@ export default function MessagesPage() {
                         <button type="button" onClick={clearVoiceMessage} aria-label={t("removeRecording")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-200" title={t("removeRecording")}>×</button>
                       </div>
                     )}
+                    {showEmojiPicker && (
+                      <div className="mb-2 max-h-52 overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white p-2 shadow-lg" role="group" aria-label={t("emoji")}>
+                        <div className="grid grid-cols-8 gap-1">
+                        {EMOJI_OPTIONS.map((emoji, index) => (
+                          <button key={`${emoji}-${index}`} type="button" onClick={() => insertEmoji(emoji)} className="flex h-9 w-9 items-center justify-center rounded-lg text-xl hover:bg-gray-100" aria-label={`${t("emoji")} ${emoji}`}>
+                            {emoji}
+                          </button>
+                        ))}
+                        </div>
+                      </div>
+                    )}
 
                     <form
                       onSubmit={sendMessage}
@@ -1750,6 +1779,7 @@ export default function MessagesPage() {
                         )}
                       </button>
                       <textarea
+                        ref={messageInputRef}
                         value={message}
                         onChange={(event) => setMessage(event.target.value)}
                         onKeyDown={(event) => {
@@ -1768,6 +1798,18 @@ export default function MessagesPage() {
                         maxLength={5000}
                         className="max-h-32 min-h-12 min-w-0 flex-1 resize-y rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:bg-white"
                       />
+
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker((visible) => !visible)}
+                        disabled={hasBlockedSelectedUser}
+                        aria-label={t("emoji")}
+                        title={t("emoji")}
+                        aria-expanded={showEmojiPicker}
+                        className="flex h-12 w-10 shrink-0 items-center justify-center rounded-full text-2xl text-gray-600 transition hover:bg-gray-100 disabled:opacity-50"
+                      >
+                        😊
+                      </button>
 
                       <button
                         type="submit"
