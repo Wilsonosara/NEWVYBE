@@ -648,6 +648,7 @@ export default function MessagesPage() {
 
   const [myId, setMyId] = useState("");
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeStoryUserIds, setActiveStoryUserIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
   const [unreadByUser, setUnreadByUser] = useState<Record<string, number>>({});
@@ -687,6 +688,7 @@ export default function MessagesPage() {
     async (userId: string) => {
       const [
         profilesResult,
+        storiesResult,
         messagesResult,
         notificationsResult,
         blockedResult,
@@ -696,6 +698,11 @@ export default function MessagesPage() {
           .select("id, username, display_name, avatar_url, last_seen_at")
           .neq("id", userId)
           .order("display_name", { ascending: true }),
+
+        supabase
+          .from("stories")
+          .select("user_id")
+          .gt("expires_at", new Date().toISOString()),
 
         supabase
           .from("direct_messages")
@@ -747,6 +754,12 @@ export default function MessagesPage() {
       }
 
       setProfiles(profilesResult.data ?? []);
+      if (storiesResult.error) {
+        console.error("Could not load active story indicators:", storiesResult.error);
+        setActiveStoryUserIds([]);
+      } else {
+        setActiveStoryUserIds([...new Set((storiesResult.data ?? []).map((story) => story.user_id))]);
+      }
       setMessages(messagesResult.data ?? []);
 
       const incomingMessageIds = ((messagesResult.data ?? []) as DirectMessage[])
@@ -1011,6 +1024,11 @@ export default function MessagesPage() {
     if (!username) return t("projectOneMember");
 
     return username.startsWith("@") ? username : `@${username}`;
+  }
+
+  function openStoryFromMessages(userId: string) {
+    window.sessionStorage.setItem("project-one-open-story-user", userId);
+    router.push("/app");
   }
 
   function insertEmoji(emoji: string) {
@@ -1312,6 +1330,7 @@ export default function MessagesPage() {
               </p>
             ) : conversations.length > 0 ? (
               conversations.map(({ profile, latest, count, unread, blocked }) => {
+                const hasActiveStory = activeStoryUserIds.includes(profile.id);
                 const latestParts = latest
                   ? getMessageParts(latest.content)
                   : null;
@@ -1330,30 +1349,43 @@ export default function MessagesPage() {
                     : `${usernameLabel(profile)} · ${t("startConversation")}`;
 
                 return (
-                  <button
+                  <div
                     key={profile.id}
-                    type="button"
                     onClick={() => void openConversation(profile.id)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void openConversation(profile.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     className={`flex w-full items-center gap-3 border-b border-gray-100 px-4 py-4 text-left transition hover:bg-gray-50 ${
                       selectedUserId === profile.id ? "bg-gray-50" : "bg-white"
                     }`}
                   >
-                    <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-sm font-bold text-gray-700 ring-1 ring-gray-200">
-                      {profile.avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={profile.avatar_url}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <ContactAvatarIcon className="h-6 w-6 text-gray-400" />
+                    <div className={`relative h-12 w-12 shrink-0 rounded-full ${hasActiveStory ? "bg-gradient-to-tr from-amber-400 via-fuchsia-600 to-purple-700" : "bg-gray-100 ring-1 ring-gray-200"}`} aria-label={hasActiveStory ? "Active story" : undefined}>
+                      {hasActiveStory && (
+                        <button type="button" onClick={(event) => { event.stopPropagation(); openStoryFromMessages(profile.id); }} aria-label={`View ${displayName(profile)}'s story`} title={`View ${displayName(profile)}'s story`} className="absolute inset-0 z-10 rounded-full" />
                       )}
+                      <div className={`absolute overflow-hidden rounded-full bg-white ${hasActiveStory ? "pointer-events-none inset-[3px] border-2 border-white" : "inset-0"}`}>
+                        {profile.avatar_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={profile.avatar_url}
+                            alt=""
+                            className="h-full w-full rounded-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center"><ContactAvatarIcon className="h-6 w-6 text-gray-400" /></span>
+                        )}
+                      </div>
 
                       {unread > 0 && (
                         <span
                           aria-label={`${unread} ${t("unread")}`}
-                          className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-600"
+                          className="absolute -right-0.5 -top-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-600"
                         />
                       )}
 
@@ -1361,7 +1393,7 @@ export default function MessagesPage() {
                         <span
                           aria-label={t("online")}
                           title={t("online")}
-                          className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500"
+                          className="absolute -bottom-0.5 -right-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500"
                         />
                       )}
                     </div>
@@ -1415,7 +1447,7 @@ export default function MessagesPage() {
                         </p>
                       )}
                     </div>
-                  </button>
+                  </div>
                 );
               })
             ) : (
@@ -1464,17 +1496,18 @@ export default function MessagesPage() {
                   </svg>
                 </button>
 
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-sm font-bold text-gray-700">
-                  {selectedProfile.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selectedProfile.avatar_url}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <ContactAvatarIcon className="h-6 w-6 text-gray-400" />
+                <div className={`relative h-10 w-10 shrink-0 rounded-full ${activeStoryUserIds.includes(selectedProfile.id) ? "bg-gradient-to-tr from-amber-400 via-fuchsia-600 to-purple-700" : "bg-gray-100"}`}>
+                  {activeStoryUserIds.includes(selectedProfile.id) && (
+                    <button type="button" onClick={() => openStoryFromMessages(selectedProfile.id)} aria-label={`View ${displayName(selectedProfile)}'s story`} title={`View ${displayName(selectedProfile)}'s story`} className="absolute inset-0 z-10 rounded-full" />
                   )}
+                  <div className={`absolute overflow-hidden rounded-full bg-white ${activeStoryUserIds.includes(selectedProfile.id) ? "pointer-events-none inset-[2px] border-2 border-white" : "inset-0"}`}>
+                    {selectedProfile.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={selectedProfile.avatar_url} alt="" className="h-full w-full rounded-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center"><ContactAvatarIcon className="h-5 w-5 text-gray-400" /></span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="min-w-0">

@@ -1446,6 +1446,16 @@ export default function Stories() {
     setPaused(false);
   };
 
+  useEffect(() => {
+    if (loadingStories) return;
+    const requestedUserId = window.sessionStorage.getItem("project-one-open-story-user");
+    if (!requestedUserId) return;
+
+    const requestedStory = stories.find((story) => story.id === `user-${requestedUserId}`);
+    window.sessionStorage.removeItem("project-one-open-story-user");
+    if (requestedStory) openStory(requestedStory);
+  }, [loadingStories, openStory, stories]);
+
   return (
     <>
       <section className="space-y-6">
