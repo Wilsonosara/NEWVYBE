@@ -18,7 +18,7 @@ export type DirectCall = {
   callId: string;
   peerId: string;
   peerName: string;
-  status: "incoming" | "calling" | "connecting" | "active";
+  status: "incoming" | "calling" | "ringing" | "connecting" | "active";
   offer?: RTCSessionDescriptionInit;
 };
 
@@ -26,6 +26,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
   const [call, setCall] = useState<DirectCall | null>(null);
   const [callError, setCallError] = useState("");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [muted, setMuted] = useState(false);
   const callRef = useRef<DirectCall | null>(null);
   const inboxChannelRef = useRef<RealtimeChannel | null>(null);
   const outboundChannelRef = useRef<RealtimeChannel | null>(null);
@@ -93,6 +94,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     peerConnectionRef.current = null;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    setMuted(false);
     setRemoteStream(null);
     pendingRemoteCandidatesRef.current = [];
     pendingLocalCandidatesRef.current = [];
@@ -230,6 +232,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       const connection = createPeerConnection(stream);
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
+      updateCall({ callId, peerId, peerName, status: "ringing" });
       await sendSignal("offer", { offer: connection.localDescription ?? offer });
       await flushLocalCandidates();
     } catch (error) {
@@ -272,11 +275,59 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     await stopCall();
   }, [sendSignal, stopCall]);
 
+  const toggleMute = useCallback(() => {
+    const nextMuted = !muted;
+    localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; });
+    setMuted(nextMuted);
+  }, [muted]);
+
+  useEffect(() => {
+    const shouldRing = call?.status === "incoming" || call?.status === "ringing";
+    if (!shouldRing) return;
+
+    let context: AudioContext | null = null;
+    let interval: number | null = null;
+    const playTone = () => {
+      if (!context || context.state === "closed") return;
+      const now = context.currentTime;
+      for (const frequency of [440, 480]) {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.055, now + 0.03);
+        gain.gain.setValueAtTime(0.055, now + 0.55);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + 0.72);
+      }
+    };
+
+    try {
+      context = new AudioContext();
+      void context.resume().then(playTone).catch(() => undefined);
+      interval = window.setInterval(playTone, 2200);
+    } catch {
+      // The visible incoming-call UI still works if audio is unavailable.
+    }
+    if (call?.status === "incoming") {
+      window.navigator.vibrate?.([450, 250, 450]);
+    }
+
+    return () => {
+      if (interval !== null) window.clearInterval(interval);
+      window.navigator.vibrate?.(0);
+      if (context && context.state !== "closed") void context.close();
+    };
+  }, [call?.callId, call?.status]);
+
   useEffect(() => () => {
     peerConnectionRef.current?.close();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     if (outboundChannelRef.current) void supabase.removeChannel(outboundChannelRef.current);
   }, [supabase]);
 
-  return { call, callError, remoteStream, startCall, answerCall, endCall };
+  return { call, callError, remoteStream, muted, toggleMute, startCall, answerCall, endCall };
 }

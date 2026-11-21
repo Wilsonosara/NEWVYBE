@@ -119,11 +119,16 @@ const translations: Record<Language, Record<string, string>> = {
     call: "Start voice call",
     incomingCall: "Incoming voice call",
     calling: "Calling",
+    ringingCall: "Ringing…",
     connectingCall: "Connecting call…",
     activeCall: "Voice call in progress",
     answerCall: "Answer",
     declineCall: "Decline",
     endCall: "End call",
+    muteCall: "Mute",
+    unmuteCall: "Unmute",
+    speakerOn: "Speaker on",
+    speakerOff: "Speaker off",
     noConversations: "No conversations yet",
     searchToStart: "Search for someone to start a private conversation.",
   },
@@ -682,7 +687,8 @@ export default function MessagesPage() {
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceMessageUrlRef = useRef<string | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const { call: directCall, callError, remoteStream, startCall, answerCall, endCall } = useDirectCall(supabase, myId);
+  const { call: directCall, callError, remoteStream, muted: callMuted, toggleMute, startCall, answerCall, endCall } = useDirectCall(supabase, myId);
+  const [speakerOn, setSpeakerOn] = useState(true);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -1041,8 +1047,9 @@ export default function MessagesPage() {
     const audio = remoteAudioRef.current;
     if (!audio) return;
     audio.srcObject = remoteStream;
+    audio.muted = !speakerOn;
     if (remoteStream) void audio.play().catch(() => undefined);
-  }, [remoteStream]);
+  }, [remoteStream, speakerOn]);
 
   useEffect(() => () => {
     if (voiceRecorderRef.current?.state === "recording") voiceRecorderRef.current.stop();
@@ -2080,10 +2087,20 @@ export default function MessagesPage() {
               </svg>
             </div>
             <h2 className="mt-4 text-lg font-bold text-gray-950">{callPeerProfile ? displayName(callPeerProfile) : directCall.peerName}</h2>
-            <p className="mt-1 text-sm text-gray-500">{t(directCall.status === "incoming" ? "incomingCall" : directCall.status === "active" ? "activeCall" : directCall.status === "connecting" ? "connectingCall" : "calling")}</p>
-            <div className="mt-6 flex justify-center gap-3">
+            <p className="mt-1 text-sm text-gray-500">{t(directCall.status === "incoming" ? "incomingCall" : directCall.status === "active" ? "activeCall" : directCall.status === "connecting" ? "connectingCall" : directCall.status === "ringing" ? "ringingCall" : "calling")}</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
               {directCall.status === "incoming" && (
                 <button type="button" onClick={() => void answerCall()} className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-700">{t("answerCall")}</button>
+              )}
+              {(directCall.status === "active" || directCall.status === "connecting") && (
+                <>
+                  <button type="button" onClick={toggleMute} aria-pressed={callMuted} className={`flex min-w-20 flex-col items-center gap-1 rounded-2xl px-4 py-3 text-xs font-semibold ${callMuted ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800 hover:bg-gray-200"}`}>
+                    <span className="text-lg" aria-hidden="true">{callMuted ? "🔇" : "🎙️"}</span>{t(callMuted ? "unmuteCall" : "muteCall")}
+                  </button>
+                  <button type="button" onClick={() => setSpeakerOn((enabled) => !enabled)} aria-pressed={speakerOn} className={`flex min-w-20 flex-col items-center gap-1 rounded-2xl px-4 py-3 text-xs font-semibold ${speakerOn ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800 hover:bg-gray-200"}`}>
+                    <span className="text-lg" aria-hidden="true">{speakerOn ? "🔊" : "🔈"}</span>{t(speakerOn ? "speakerOn" : "speakerOff")}
+                  </button>
+                </>
               )}
               <button type="button" onClick={() => void endCall(directCall.status === "incoming" ? "decline" : "end")} className="rounded-full bg-red-600 px-6 py-3 text-sm font-semibold text-white hover:bg-red-700">{t(directCall.status === "incoming" ? "declineCall" : "endCall")}</button>
             </div>
