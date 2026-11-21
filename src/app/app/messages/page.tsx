@@ -670,6 +670,7 @@ export default function MessagesPage() {
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [reactionPickerId, setReactionPickerId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DirectMessage | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [voiceMessageFile, setVoiceMessageFile] = useState<File | null>(null);
@@ -687,6 +688,7 @@ export default function MessagesPage() {
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceMessageUrlRef = useRef<string | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const messageGestureRef = useRef<{ item: DirectMessage; startX: number; startY: number; timer: number | null; held: boolean } | null>(null);
   const { call: directCall, callError, remoteStream, muted: callMuted, toggleMute, startCall, answerCall, endCall } = useDirectCall(supabase, myId);
   const [speakerOn, setSpeakerOn] = useState(true);
 
@@ -782,8 +784,16 @@ export default function MessagesPage() {
       } else {
         setActiveStoryUserIds([...new Set((storiesResult.data ?? []).map((story) => story.user_id))]);
       }
-      setMessages(messagesResult.data ?? []);
-      const messageIds = ((messagesResult.data ?? []) as DirectMessage[]).map((item) => item.id);
+      const { data: deletedRows, error: deletedRowsError } = await supabase
+        .from("direct_message_deletions")
+        .select("message_id")
+        .eq("user_id", userId);
+      if (deletedRowsError) throw new Error(deletedRowsError.message);
+      const hiddenMessageIds = new Set((deletedRows ?? []).map((row: { message_id: number }) => row.message_id));
+      const visibleMessages = ((messagesResult.data ?? []) as DirectMessage[])
+        .filter((item) => !hiddenMessageIds.has(item.id));
+      setMessages(visibleMessages);
+      const messageIds = visibleMessages.map((item) => item.id);
       if (messageIds.length) {
         const { data: reactionRows, error: reactionError } = await supabase
           .from("direct_message_reactions")
@@ -970,6 +980,15 @@ export default function MessagesPage() {
       )
       .subscribe();
 
+    const deletionsChannel = supabase
+      .channel(`direct-message-deletions-${myId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "direct_message_deletions", filter: `user_id=eq.${myId}` },
+        refresh
+      )
+      .subscribe();
+
     const profilesChannel = supabase
       .channel(`message-profile-status-${myId}`)
       .on(
@@ -988,6 +1007,7 @@ export default function MessagesPage() {
       window.clearInterval(refreshTimer);
       void supabase.removeChannel(messagesChannel);
       void supabase.removeChannel(notificationsChannel);
+      void supabase.removeChannel(deletionsChannel);
       void supabase.removeChannel(profilesChannel);
     };
   }, [myId, supabase, loadData]);
@@ -1207,13 +1227,42 @@ export default function MessagesPage() {
     setEditDraft("");
   }
 
-  async function deleteMessage(item: DirectMessage) {
-    if (!myId || !window.confirm("Delete this message?")) return;
-    const { error: deleteError } = await supabase.from("direct_messages")
-      .delete().eq("id", item.id).eq("sender_id", myId);
-    if (deleteError) { setError(deleteError.message); return; }
+  async function deleteMessage(item: DirectMessage, mode: "me" | "everyone") {
+    if (!myId) return;
+    const result = mode === "everyone"
+      ? await supabase.from("direct_messages").delete().eq("id", item.id).eq("sender_id", myId)
+      : await supabase.from("direct_message_deletions").upsert(
+          { message_id: item.id, user_id: myId },
+          { onConflict: "message_id,user_id", ignoreDuplicates: true }
+        );
+    if (result.error) { setError(result.error.message); return; }
     setMessages((current) => current.filter((row) => row.id !== item.id));
     setReactions((current) => current.filter((row) => row.message_id !== item.id));
+    setDeleteTarget(null);
+  }
+
+  function startMessageGesture(item: DirectMessage, x: number, y: number) {
+    if (messageGestureRef.current?.timer !== null && messageGestureRef.current?.timer !== undefined) {
+      window.clearTimeout(messageGestureRef.current.timer);
+    }
+    const gesture = { item, startX: x, startY: y, timer: null as number | null, held: false };
+    gesture.timer = window.setTimeout(() => {
+      if (messageGestureRef.current !== gesture) return;
+      gesture.held = true;
+      setDeleteTarget(item);
+    }, 550);
+    messageGestureRef.current = gesture;
+  }
+
+  function finishMessageGesture(x: number, y: number) {
+    const gesture = messageGestureRef.current;
+    if (!gesture) return;
+    if (gesture.timer !== null) window.clearTimeout(gesture.timer);
+    if (!gesture.held && Math.abs(x - gesture.startX) >= 60 && Math.abs(y - gesture.startY) < 55) {
+      setReplyTo(gesture.item);
+      messageInputRef.current?.focus();
+    }
+    messageGestureRef.current = null;
   }
 
   async function toggleReaction(messageId: number, emoji: string) {
@@ -1723,6 +1772,31 @@ export default function MessagesPage() {
                           >
                             <div className="max-w-[85%] sm:max-w-[75%]">
                               <div
+                                onTouchStart={(event) => {
+                                  const touch = event.touches[0];
+                                  if (touch) startMessageGesture(item, touch.clientX, touch.clientY);
+                                }}
+                                onTouchEnd={(event) => {
+                                  const touch = event.changedTouches[0];
+                                  if (touch) finishMessageGesture(touch.clientX, touch.clientY);
+                                }}
+                                onTouchCancel={() => {
+                                  if (messageGestureRef.current?.timer !== null && messageGestureRef.current?.timer !== undefined) window.clearTimeout(messageGestureRef.current.timer);
+                                  messageGestureRef.current = null;
+                                }}
+                                onMouseDown={(event) => {
+                                  if (event.button === 0) startMessageGesture(item, event.clientX, event.clientY);
+                                }}
+                                onMouseUp={(event) => finishMessageGesture(event.clientX, event.clientY)}
+                                onMouseLeave={() => {
+                                  if (messageGestureRef.current?.timer !== null && messageGestureRef.current?.timer !== undefined) window.clearTimeout(messageGestureRef.current.timer);
+                                  messageGestureRef.current = null;
+                                }}
+                                onContextMenu={(event) => {
+                                  event.preventDefault();
+                                  setDeleteTarget(item);
+                                }}
+                                style={{ touchAction: "pan-y" }}
                                 className={`overflow-hidden rounded-[22px] px-4 py-3 text-sm leading-6 ${
                                   mine
                                     ? "rounded-br-md bg-[#f3f3f1] text-gray-800"
@@ -1828,12 +1902,8 @@ export default function MessagesPage() {
                                   <button key={emoji} type="button" onClick={() => void toggleReaction(item.id, emoji)} aria-label={`${emoji} ${rows.length}`} className={`rounded-full border px-2 py-0.5 text-xs ${rows.some((row) => row.user_id === myId) ? "border-violet-300 bg-violet-50" : "border-gray-200 bg-white"}`}>{emoji} {rows.length}</button>
                                 ))}
                                 <button type="button" onClick={() => setReactionPickerId(reactionPickerId === item.id ? null : item.id)} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100" aria-label="React to message">☺</button>
-                                <button type="button" onClick={() => { setReplyTo(item); messageInputRef.current?.focus(); }} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100">Reply</button>
                                 {mine && messageParts.text && !messageParts.imageUrl && !messageParts.postId && !messageParts.audioPath && (
-                                  <>
-                                    <button type="button" onClick={() => { setEditingMessageId(item.id); setEditDraft(messageParts.text); }} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100">Edit</button>
-                                    <button type="button" onClick={() => void deleteMessage(item)} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600">Delete</button>
-                                  </>
+                                  <button type="button" onClick={() => { setEditingMessageId(item.id); setEditDraft(messageParts.text); }} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100">Edit</button>
                                 )}
                                 {reactionPickerId === item.id && <span className="flex rounded-full border border-gray-200 bg-white px-1 shadow-sm">{["👍", "❤️", "😂", "😮", "😢", "🔥"].map((emoji) => <button key={emoji} type="button" onClick={() => void toggleReaction(item.id, emoji)} className="p-1 text-base hover:bg-gray-100" aria-label={`React ${emoji}`}>{emoji}</button>)}</span>}
                               </div>
@@ -2066,6 +2136,19 @@ export default function MessagesPage() {
         <div className="fixed right-4 top-4 z-[120] w-[min(24rem,calc(100vw-2rem))]" aria-live="assertive">
           {error && <div role="alert" className="mb-2 flex items-start gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-700 shadow-xl"><span className="min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError("")} className="shrink-0 text-lg leading-none text-gray-500" aria-label="Dismiss error">×</button></div>}
           {callError && <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-amber-800 shadow-xl"><span className="min-w-0 flex-1">{callError}</span></div>}
+        </div>
+      )}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={() => setDeleteTarget(null)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="delete-message-title" onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <h2 id="delete-message-title" className="text-base font-semibold text-gray-950">Delete message?</h2>
+            <p className="mt-1 text-sm text-gray-500">Choose where you want this message removed.</p>
+            <div className="mt-5 grid gap-2">
+              <button type="button" onClick={() => void deleteMessage(deleteTarget, "me")} className="rounded-xl border border-gray-200 px-4 py-3 text-left text-sm font-medium text-gray-800 hover:bg-gray-50">Delete for me</button>
+              {deleteTarget.sender_id === myId && <button type="button" onClick={() => void deleteMessage(deleteTarget, "everyone")} className="rounded-xl border border-red-200 px-4 py-3 text-left text-sm font-medium text-red-700 hover:bg-red-50">Delete for everyone</button>}
+              <button type="button" onClick={() => setDeleteTarget(null)} className="rounded-xl px-4 py-3 text-sm font-medium text-gray-500 hover:bg-gray-50">Cancel</button>
+            </div>
+          </section>
         </div>
       )}
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" aria-label={t("activeCall")} />
