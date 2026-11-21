@@ -16,7 +16,6 @@ import { createClient } from "../../../utils/supabase/client";
 import { usePosts, type PostComment } from "./PostContext";
 import Stories from "./Stories";
 import MediaDisplay from "./MediaDisplay";
-import ContactAvatarIcon from "./ContactAvatarIcon";
 import { useLanguage, type Language } from "./LanguageProvider";
 
 const SAVED_KEY = "project-one-saved-posts";
@@ -700,7 +699,6 @@ export default function AppHome() {
   const [highlightedPost, setHighlightedPost] = useState<number | null>(null);
   const handledPostScrollRef = useRef<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [followedAuthors, setFollowedAuthors] = useState<string[]>([]);
   const [pendingFollowAuthors, setPendingFollowAuthors] = useState<string[]>([]);
   const [viewerPostId, setViewerPostId] = useState<number | null>(null);
@@ -819,58 +817,6 @@ export default function AppHome() {
       active = false;
     };
   }, [posts]);
-
-  useEffect(() => {
-    if (!currentUserId) {
-      setUnreadNotificationCount(0);
-      return;
-    }
-
-    let active = true;
-    const supabase = createClient();
-    const refreshUnreadCount = async () => {
-      const [{ count, error }, localNotifications] = await Promise.all([
-        supabase
-          .from("notifications")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", currentUserId)
-          .is("read_at", null),
-        Promise.resolve().then(() => {
-          try {
-            const saved = localStorage.getItem(NOTIFICATIONS_KEY);
-            return saved ? (JSON.parse(saved) as SimulatedNotification[]) : [];
-          } catch {
-            return [];
-          }
-        }),
-      ]);
-
-      if (!active) return;
-      if (error) console.error("Could not load unread notification count:", error);
-      const localUnread = localNotifications.filter((notification) => notification.unread).length;
-      setUnreadNotificationCount((count ?? 0) + localUnread);
-    };
-
-    void refreshUnreadCount();
-    window.addEventListener("project-one-notifications-updated", refreshUnreadCount);
-    const channel = supabase
-      .channel(`notification-badge-${currentUserId}`)
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "notifications",
-        filter: `user_id=eq.${currentUserId}`,
-      }, () => void refreshUnreadCount())
-      .subscribe();
-    const refreshTimer = window.setInterval(() => void refreshUnreadCount(), 30_000);
-
-    return () => {
-      active = false;
-      window.removeEventListener("project-one-notifications-updated", refreshUnreadCount);
-      window.clearInterval(refreshTimer);
-      void supabase.removeChannel(channel);
-    };
-  }, [currentUserId]);
 
   useEffect(() => {
     let active = true;
@@ -1520,7 +1466,7 @@ export default function AppHome() {
       style={{ marginLeft: `${Math.min(depth * 24, 48)}px` }}
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold text-gray-700">
-        <ContactAvatarIcon className="h-4 w-4 text-gray-500" />
+        {comment.author.trim().charAt(0).toUpperCase() || "V"}
       </div>
       <div className="min-w-0 flex-1">
         <div className="rounded-2xl bg-gray-100 px-3 py-2">
@@ -2098,16 +2044,16 @@ export default function AppHome() {
   return (
     <main className="min-h-screen min-w-0 bg-white text-black">
       <div className="mx-auto w-full max-w-2xl min-w-0 px-3 pb-6 pt-3 sm:px-5 sm:pt-5">
-        <header className="mb-3 flex items-center justify-between border-b border-gray-100 pb-2">
+        <header className="mb-5 flex items-center justify-between border-b border-gray-100 pb-4">
           <Link href="/app" className="text-2xl font-black tracking-tight">
             VYBE<span className="text-gray-400">.</span>
           </Link>
 
           <Link
             href="/app/notifications"
-            aria-label={`${tr("notifications")}: ${unreadNotificationCount}`}
+            aria-label={tr("notifications")}
             title={tr("notifications")}
-            className="relative flex h-10 w-10 items-center justify-center rounded-full text-gray-800 transition hover:bg-gray-100"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-gray-800 transition hover:bg-gray-100"
           >
             <svg
               viewBox="0 0 24 24"
@@ -2121,9 +2067,6 @@ export default function AppHome() {
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
               <path d="M10 21h4" />
             </svg>
-            <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
-              {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
-            </span>
           </Link>
         </header>
 
@@ -2132,6 +2075,24 @@ export default function AppHome() {
             <Stories />
           </div>
         </section>
+
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight">
+              {tr("forYou")}
+            </h1>
+            <p className="mt-1 text-xs text-gray-500">
+              {tr("postsFromWorld")}
+            </p>
+          </div>
+
+          <Link
+            href="/app/explore"
+            className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold transition hover:bg-gray-100"
+          >
+            {tr("discover")}
+          </Link>
+        </div>
 
         {saveStatus && (
           <p
@@ -2240,7 +2201,7 @@ export default function AppHome() {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <ContactAvatarIcon className="h-6 w-6 text-gray-500" />
+                      authorName.charAt(0).toUpperCase()
                     )}
                   </Link>
 
@@ -2330,7 +2291,6 @@ export default function AppHome() {
                   mediaId={post.mediaId}
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
-                  mediaItems={post.mediaItems}
                   isViewerOpen={viewerPostId === post.id || outgoingViewerPostId === post.id}
                   isViewerTransitionIncoming={viewerPostId === post.id && viewerTransitioning}
                   isViewerTransitionOutgoing={outgoingViewerPostId === post.id}
@@ -2741,13 +2701,13 @@ export default function AppHome() {
                 </div>
               ) : shareMode === "story-editor" && storyShareDraft ? (
                 <div className="space-y-4">                  <button type="button" onClick={() => setShareMode("options")} className="text-sm font-semibold text-purple-700 hover:underline">← Back to sharing options</button>
-                  <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[420px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326] shadow-inner" onPointerMove={updateStoryCaptionPosition} onPointerUp={() => { storyCaptionDragRef.current = false; }} onPointerCancel={() => { storyCaptionDragRef.current = false; }}>
+                  <div className="relative mx-auto aspect-[9/16] max-h-[38dvh] overflow-hidden rounded-2xl bg-[#191326] shadow-inner">
                     {storyShareDraft.isVideo ? (
                       <video src={storyShareDraft.mediaUrl} muted playsInline controls className={`h-full w-full ${storyShareCrop === "cover" ? "object-cover" : "object-contain"}`} style={{ filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
                     ) : (
                       <img src={storyShareDraft.mediaUrl} alt="Story preview" className="h-full w-full object-contain" style={{ objectFit: storyShareCrop, filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
                     )}
-                    {(storyShareCaption || storyShareDraft.postId) && <button type="button" onPointerDown={(event) => { event.preventDefault(); storyCaptionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className="absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl bg-black/55 px-3 py-2 text-center text-sm font-semibold text-white shadow" style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyShareCaption || "Shared post"}</button>}
+                    {(storyShareCaption || storyShareDraft.postId) && <div className="pointer-events-none absolute inset-x-4 bottom-8 text-center"><span className="rounded-xl bg-black/50 px-3 py-2 text-sm font-semibold text-white shadow">{storyShareCaption || "Shared post"}</span></div>}
                   </div>
 
                   <div>
@@ -2780,7 +2740,7 @@ export default function AppHome() {
                     {!shareLoading && filteredShareProfiles.length === 0 && <p className="py-4 text-center text-sm text-gray-500">{shareProfiles.length === 0 ? tr("noProfiles") : tr("noMatches")}</p>}
                     {!shareLoading && filteredShareProfiles.map((profile) => (
                       <div key={profile.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-gray-50">
-                        {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500"><ContactAvatarIcon className="h-5 w-5" /></div>}
+                        {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-700">{(profile.display_name || profile.username || "?").charAt(0).toUpperCase()}</div>}
                         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{profile.display_name || profile.username || "VYBE user"}</p>{profile.username && <p className="truncate text-xs text-gray-500">@{profile.username.replace(/^@/, "")}</p>}</div>
                         <button type="button" disabled={shareSendingTo !== null} onClick={() => void sendPostToFriend(profile)} className="shrink-0 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold transition hover:bg-gray-100 disabled:opacity-50">{shareSendingTo === profile.id ? tr("sending") : tr("send")}</button>
                       </div>

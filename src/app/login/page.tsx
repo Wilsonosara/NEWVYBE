@@ -169,7 +169,7 @@ function LoginPageContent() {
               </button>
             </div>
             <div className="mt-2 text-right">
-              <Link
+           <Link
                 href="/forgot-password"
                 className="text-sm font-medium text-gray-600 underline underline-offset-4 hover:text-gray-900"
               >

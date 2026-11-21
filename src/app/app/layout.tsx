@@ -418,40 +418,6 @@ function ConnectIcon() {
 
 function AppLayoutContent({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
-  const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
-
-  useEffect(() => {
-    let restingViewportHeight = window.innerHeight;
-    const updateNavPosition = () => {
-      if (window.innerWidth >= 1024) {
-        restingViewportHeight = window.innerHeight;
-        setMobileKeyboardInset(0);
-        return;
-      }
-
-      const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
-      const viewportOffset = window.visualViewport?.offsetTop ?? 0;
-      const inset = Math.max(0, Math.round(restingViewportHeight - visibleHeight - viewportOffset));
-      if (inset > 140) {
-        setMobileKeyboardInset(inset);
-      } else {
-        restingViewportHeight = window.innerHeight;
-        setMobileKeyboardInset(0);
-      }
-    };
-
-    const viewport = window.visualViewport;
-    window.addEventListener("resize", updateNavPosition);
-    viewport?.addEventListener("resize", updateNavPosition);
-    viewport?.addEventListener("scroll", updateNavPosition);
-    updateNavPosition();
-
-    return () => {
-      window.removeEventListener("resize", updateNavPosition);
-      viewport?.removeEventListener("resize", updateNavPosition);
-      viewport?.removeEventListener("scroll", updateNavPosition);
-    };
-  }, []);
 
   const desktopIconClass =
     "relative flex h-12 w-12 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 hover:text-black active:scale-90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white";
@@ -614,7 +580,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION: PRESERVED */}
-      <nav style={mobileKeyboardInset > 0 ? { bottom: `-${mobileKeyboardInset}px` } : undefined} className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_rgba(0,0,0,0.05)] backdrop-blur-lg transition-colors duration-200 dark:border-gray-800 dark:bg-[#1b1b1b]/95 lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_rgba(0,0,0,0.05)] backdrop-blur-lg transition-colors duration-200 dark:border-gray-800 dark:bg-[#1b1b1b]/95 lg:hidden">
         <div className="mx-auto flex max-w-lg items-center justify-around py-2">
           <Link
             href="/app"
