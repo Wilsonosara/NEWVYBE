@@ -2312,6 +2312,7 @@ export default function AppHome() {
                   mediaId={post.mediaId}
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
+                  mediaItems={post.mediaItems}
                   isViewerOpen={viewerPostId === post.id || outgoingViewerPostId === post.id}
                   isViewerTransitionIncoming={viewerPostId === post.id && viewerTransitioning}
                   isViewerTransitionOutgoing={outgoingViewerPostId === post.id}
