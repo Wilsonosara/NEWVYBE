@@ -418,6 +418,30 @@ function ConnectIcon() {
 
 function AppLayoutContent({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
+  const [hideMobileNavForTyping, setHideMobileNavForTyping] = useState(false);
+
+  useEffect(() => {
+    const updateNavVisibility = () => {
+      const activeElement = document.activeElement;
+      const isTextEntry = activeElement instanceof HTMLElement && (
+        activeElement.matches("textarea, [contenteditable='true']") ||
+        (activeElement.matches("input") && !activeElement.matches("input[type='button'], input[type='submit'], input[type='reset'], input[type='checkbox'], input[type='radio'], input[type='range'], input[type='file'], input[type='hidden']"))
+      );
+      setHideMobileNavForTyping(isTextEntry && window.innerWidth < 1024);
+    };
+
+    const handleFocusOut = () => window.requestAnimationFrame(updateNavVisibility);
+    document.addEventListener("focusin", updateNavVisibility);
+    document.addEventListener("focusout", handleFocusOut);
+    window.addEventListener("resize", updateNavVisibility);
+    updateNavVisibility();
+
+    return () => {
+      document.removeEventListener("focusin", updateNavVisibility);
+      document.removeEventListener("focusout", handleFocusOut);
+      window.removeEventListener("resize", updateNavVisibility);
+    };
+  }, []);
 
   const desktopIconClass =
     "relative flex h-12 w-12 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 hover:text-black active:scale-90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white";
@@ -580,7 +604,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION: PRESERVED */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_rgba(0,0,0,0.05)] backdrop-blur-lg transition-colors duration-200 dark:border-gray-800 dark:bg-[#1b1b1b]/95 lg:hidden">
+      <nav aria-hidden={hideMobileNavForTyping} className={`fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_rgba(0,0,0,0.05)] backdrop-blur-lg transition-all duration-200 dark:border-gray-800 dark:bg-[#1b1b1b]/95 lg:hidden ${hideMobileNavForTyping ? "pointer-events-none invisible translate-y-full" : "translate-y-0"}`}>
         <div className="mx-auto flex max-w-lg items-center justify-around py-2">
           <Link
             href="/app"
