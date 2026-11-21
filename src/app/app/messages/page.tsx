@@ -695,6 +695,12 @@ export default function MessagesPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!error) return;
+    const timeout = window.setTimeout(() => setError(""), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
+
   const totalUnread = useMemo(
     () => Object.values(unreadByUser).reduce((sum, count) => sum + count, 0),
     [unreadByUser]
@@ -1875,19 +1881,6 @@ export default function MessagesPage() {
                   </div>
 
                   <div className="border-t border-gray-200 bg-white px-3 py-3 sm:px-5 sm:py-4">
-                    {error && (
-                      <p
-                        role="alert"
-                        className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
-                      >
-                        {error}
-                      </p>
-                    )}
-                    {callError && (
-                      <p role="alert" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        {callError}
-                      </p>
-                    )}
                     {recordingVoice && (
                       <p role="status" className="mb-2 text-xs font-medium text-red-600">{t("recordingVoice")}</p>
                     )}
@@ -2069,12 +2062,10 @@ export default function MessagesPage() {
         </aside>
       </div>
 
-      {error && !selectedProfile && (
-        <div
-          role="alert"
-          className="border-t border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          {error}
+      {(error || callError) && (
+        <div className="fixed right-4 top-4 z-[120] w-[min(24rem,calc(100vw-2rem))]" aria-live="assertive">
+          {error && <div role="alert" className="mb-2 flex items-start gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-700 shadow-xl"><span className="min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError("")} className="shrink-0 text-lg leading-none text-gray-500" aria-label="Dismiss error">×</button></div>}
+          {callError && <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-amber-800 shadow-xl"><span className="min-w-0 flex-1">{callError}</span></div>}
         </div>
       )}
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" aria-label={t("activeCall")} />

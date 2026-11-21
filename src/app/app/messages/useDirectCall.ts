@@ -37,6 +37,12 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
   const pendingLocalCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const localDescriptionSentRef = useRef(false);
 
+  useEffect(() => {
+    if (!callError) return;
+    const timeout = window.setTimeout(() => setCallError(""), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [callError]);
+
   const updateCall = useCallback((nextCall: DirectCall | null) => {
     callRef.current = nextCall;
     setCall(nextCall);
