@@ -1097,6 +1097,20 @@ export default function AppHome() {
     return () => window.clearTimeout(timer);
   }, [highlightedPost]);
 
+  useEffect(() => {
+    if (openComments === null) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenComments(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openComments]);
+
   const toggleFollowAuthor = async (authorId: string) => {
     if (!currentUserId || currentUserId === authorId || pendingFollowAuthors.includes(authorId)) return;
 
@@ -2041,6 +2055,13 @@ export default function AppHome() {
     }
   };
 
+  const activeCommentsPost = openComments === null
+    ? null
+    : posts.find((post) => post.id === openComments) ?? null;
+  const activeComments = activeCommentsPost
+    ? allPostComments[activeCommentsPost.id] ?? []
+    : [];
+
   return (
     <main className="min-h-screen min-w-0 bg-white text-black">
       <div className="mx-auto w-full max-w-2xl min-w-0 px-3 pb-6 pt-3 sm:px-5 sm:pt-5">
@@ -2318,9 +2339,8 @@ export default function AppHome() {
                   onComments={() => {
                     setOpenComments(post.id);
                     setCommentText("");
-                    window.setTimeout(() => {
-                      document.getElementById(`comments-${post.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-                    }, 100);
+                    setCommentError("");
+                    setReplyingTo(null);
                   }}
                   onSave={() => void toggleSave(post.id)}
                   onShare={() => void handleShare(post.id)}
@@ -2374,10 +2394,10 @@ export default function AppHome() {
                     <button
                       type="button"
                       onClick={() => {
-                        setOpenComments(
-                          openComments === post.id ? null : post.id
-                        );
+                        setOpenComments(post.id);
                         setCommentText("");
+                        setCommentError("");
+                        setReplyingTo(null);
                       }}
                       aria-label={tr("comments")}
                       className="flex items-center gap-1.5 text-sm text-gray-800 hover:text-gray-500"
@@ -2484,146 +2504,6 @@ export default function AppHome() {
                   </p>
                 )}
 
-                {openComments === post.id && (
-                  <div id={`comments-${post.id}`} className="mt-4 border-t border-gray-100 pt-4">
-                    <div className="space-y-4">
-                      {postComments
-                        .filter((comment) => !comment.parentCommentId)
-                        .map((comment) => (
-                          <div key={`${post.id}-thread-${comment.id}`} className="space-y-3">
-                            {renderComment(post.id, comment)}
-                            {renderReplies(post.id, comment.id)}
-                          </div>
-                        ))}
-
-                      {postComments.length === 0 && (
-                        <p className="text-sm text-gray-500">
-                          {tr("firstComment")}
-                        </p>
-                      )}
-                    </div>
-
-                    {recordingCommentPostId === post.id && (
-                      <p className="mt-3 text-xs text-gray-500" role="status">
-                        Recording voice comment… Tap the microphone to stop.
-                      </p>
-                    )}
-
-                    {voiceCommentPostId === post.id && voiceCommentUrl && (
-                      <div className="mt-3 flex items-center gap-2">
-                        <audio
-                          controls
-                          src={voiceCommentUrl}
-                          className="h-10 min-w-0 flex-1"
-                          aria-label="Preview voice comment"
-                        />
-                        <button
-                          type="button"
-                          onClick={clearVoiceComment}
-                          className="px-2 py-2 text-sm text-gray-600 hover:text-black"
-                          aria-label="Remove voice recording"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-
-                    {commentError && (
-                      <p className="mt-2 text-xs text-red-600" role="alert">
-                        {commentError}
-                      </p>
-                    )}
-
-                    <form
-                      className="relative mt-4 flex min-w-0 items-center gap-2"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void submitComment(post.id);
-                      }}
-                    >
-                      {replyingTo?.postId === post.id && (
-                        <div className="absolute bottom-full left-2 mb-1 flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
-                          <span>Replying to {replyingTo.comment.author}</span>
-                          <button
-                            type="button"
-                            onClick={() => setReplyingTo(null)}
-                            className="font-bold hover:text-gray-950"
-                            aria-label="Cancel reply"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
-                      <input
-                        type="text"
-                        value={commentText}
-                        onChange={(event) => setCommentText(event.target.value)}
-                        placeholder={replyingTo?.postId === post.id ? `Reply to ${replyingTo.comment.author}...` : tr("addComment")}
-                        aria-label={replyingTo?.postId === post.id ? `Reply to ${replyingTo.comment.author}` : tr("addComment")}
-                        className="min-w-0 flex-1 rounded-full bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-gray-400"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          recordingCommentPostId === post.id
-                            ? stopVoiceComment()
-                            : void startVoiceComment(post.id)
-                        }
-                        disabled={
-                          (recordingCommentPostId !== null &&
-                            recordingCommentPostId !== post.id) ||
-                          (voiceCommentPostId !== null &&
-                            voiceCommentPostId !== post.id)
-                        }
-                        className="shrink-0 rounded-full bg-gray-100 p-3 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
-                        aria-label={
-                          recordingCommentPostId === post.id
-                            ? "Stop voice recording"
-                            : "Record voice comment"
-                        }
-                        title={
-                          recordingCommentPostId === post.id
-                            ? "Stop recording"
-                            : "Record voice comment"
-                        }
-                      >
-                        {recordingCommentPostId === post.id ? (
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-5 w-5 fill-current"
-                            aria-hidden="true"
-                          >
-                            <rect x="6" y="6" width="12" height="12" rx="2" />
-                          </svg>
-                        ) : (
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-5 w-5 fill-none stroke-current"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <rect x="9" y="2" width="6" height="12" rx="3" />
-                            <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />
-                          </svg>
-                        )}
-                      </button>
-
-                      <button
-                        type="submit"
-                        disabled={
-                          !commentText.trim() &&
-                          !(voiceCommentPostId === post.id && voiceCommentFile)
-                        }
-                        className="shrink-0 px-2 py-2 text-sm font-bold text-black disabled:text-gray-300"
-                      >
-                        {tr("post")}
-                      </button>
-                    </form>
-                  </div>
-                )}
               </article>
             );
           })}
@@ -2638,6 +2518,117 @@ export default function AppHome() {
           </Link>
         </div>
       </div>
+
+      {activeCommentsPost && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setOpenComments(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="post-comments-title"
+            className="flex h-[86dvh] max-h-[760px] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-[min(760px,85vh)] sm:rounded-3xl"
+          >
+            <header className="flex shrink-0 items-center justify-between border-b border-gray-100 px-5 py-4">
+              <div className="min-w-0">
+                <h2 id="post-comments-title" className="text-base font-bold text-gray-950">
+                  {tr("comments")}
+                </h2>
+                <p className="mt-0.5 truncate text-xs text-gray-500">
+                  {activeCommentsPost.author} · {activeCommentsPost.content}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpenComments(null)}
+                aria-label="Close comments"
+                className="ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl text-gray-500 hover:bg-gray-100"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+              <div className="space-y-4">
+                {activeComments
+                  .filter((comment) => !comment.parentCommentId)
+                  .map((comment) => (
+                    <div key={`${activeCommentsPost.id}-thread-${comment.id}`} className="space-y-3">
+                      {renderComment(activeCommentsPost.id, comment)}
+                      {renderReplies(activeCommentsPost.id, comment.id)}
+                    </div>
+                  ))}
+                {activeComments.length === 0 && (
+                  <p className="py-8 text-center text-sm text-gray-500">{tr("firstComment")}</p>
+                )}
+              </div>
+
+              {recordingCommentPostId === activeCommentsPost.id && (
+                <p className="mt-3 text-xs text-gray-500" role="status">
+                  Recording voice comment… Tap the microphone to stop.
+                </p>
+              )}
+
+              {voiceCommentPostId === activeCommentsPost.id && voiceCommentUrl && (
+                <div className="mt-3 flex items-center gap-2">
+                  <audio controls src={voiceCommentUrl} className="h-10 min-w-0 flex-1" aria-label="Preview voice comment" />
+                  <button type="button" onClick={clearVoiceComment} className="px-2 py-2 text-sm text-gray-600 hover:text-black" aria-label="Remove voice recording">Remove</button>
+                </div>
+              )}
+
+              {commentError && <p className="mt-3 text-xs text-red-600" role="alert">{commentError}</p>}
+            </div>
+
+            <form
+              className="relative flex shrink-0 items-center gap-2 border-t border-gray-100 bg-white px-3 py-3 sm:px-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitComment(activeCommentsPost.id);
+              }}
+            >
+              {replyingTo?.postId === activeCommentsPost.id && (
+                <div className="absolute bottom-full left-4 mb-1 flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
+                  <span>Replying to {replyingTo.comment.author}</span>
+                  <button type="button" onClick={() => setReplyingTo(null)} className="font-bold hover:text-gray-950" aria-label="Cancel reply">×</button>
+                </div>
+              )}
+              <input
+                type="text"
+                value={commentText}
+                onChange={(event) => setCommentText(event.target.value)}
+                placeholder={replyingTo?.postId === activeCommentsPost.id ? `Reply to ${replyingTo.comment.author}...` : tr("addComment")}
+                aria-label={replyingTo?.postId === activeCommentsPost.id ? `Reply to ${replyingTo.comment.author}` : tr("addComment")}
+                className="min-w-0 flex-1 rounded-full bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-gray-400"
+              />
+              <button
+                type="button"
+                onClick={() => recordingCommentPostId === activeCommentsPost.id ? stopVoiceComment() : void startVoiceComment(activeCommentsPost.id)}
+                disabled={(recordingCommentPostId !== null && recordingCommentPostId !== activeCommentsPost.id) || (voiceCommentPostId !== null && voiceCommentPostId !== activeCommentsPost.id)}
+                className="shrink-0 rounded-full bg-gray-100 p-3 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                aria-label={recordingCommentPostId === activeCommentsPost.id ? "Stop voice recording" : "Record voice comment"}
+                title={recordingCommentPostId === activeCommentsPost.id ? "Stop recording" : "Record voice comment"}
+              >
+                {recordingCommentPostId === activeCommentsPost.id ? (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" /></svg>
+                )}
+              </button>
+              <button
+                type="submit"
+                disabled={!commentText.trim() && !(voiceCommentPostId === activeCommentsPost.id && voiceCommentFile)}
+                className="shrink-0 px-2 py-2 text-sm font-bold text-black disabled:text-gray-300"
+              >
+                {tr("post")}
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
 
       {shareDialogPost !== null && (
         <div
