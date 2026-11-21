@@ -423,12 +423,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   useEffect(() => {
     let restingViewportHeight = window.innerHeight;
     const updateNavPosition = () => {
-      const activeElement = document.activeElement;
-      const isTextEntry = activeElement instanceof HTMLElement && (
-        activeElement.matches("textarea, [contenteditable='true']") ||
-        (activeElement.matches("input") && !activeElement.matches("input[type='button'], input[type='submit'], input[type='reset'], input[type='checkbox'], input[type='radio'], input[type='range'], input[type='file'], input[type='hidden']"))
-      );
-      if (!isTextEntry || window.innerWidth >= 1024) {
+      if (window.innerWidth >= 1024) {
         restingViewportHeight = window.innerHeight;
         setMobileKeyboardInset(0);
         return;
@@ -437,21 +432,21 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
       const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
       const viewportOffset = window.visualViewport?.offsetTop ?? 0;
       const inset = Math.max(0, Math.round(restingViewportHeight - visibleHeight - viewportOffset));
-      setMobileKeyboardInset(inset > 80 ? inset : 0);
+      if (inset > 140) {
+        setMobileKeyboardInset(inset);
+      } else {
+        restingViewportHeight = window.innerHeight;
+        setMobileKeyboardInset(0);
+      }
     };
 
-    const handleFocusOut = () => window.requestAnimationFrame(updateNavPosition);
     const viewport = window.visualViewport;
-    document.addEventListener("focusin", updateNavPosition);
-    document.addEventListener("focusout", handleFocusOut);
     window.addEventListener("resize", updateNavPosition);
     viewport?.addEventListener("resize", updateNavPosition);
     viewport?.addEventListener("scroll", updateNavPosition);
     updateNavPosition();
 
     return () => {
-      document.removeEventListener("focusin", updateNavPosition);
-      document.removeEventListener("focusout", handleFocusOut);
       window.removeEventListener("resize", updateNavPosition);
       viewport?.removeEventListener("resize", updateNavPosition);
       viewport?.removeEventListener("scroll", updateNavPosition);
