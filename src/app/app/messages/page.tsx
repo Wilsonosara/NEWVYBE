@@ -25,7 +25,11 @@ type DirectMessage = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  edited_at: string | null;
+  reply_to_id: number | null;
 };
+
+type DirectMessageReaction = { id: number; message_id: number; user_id: string; emoji: string };
 
 type MessageParts = {
   text: string;
@@ -656,6 +660,11 @@ export default function MessagesPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
+  const [reactions, setReactions] = useState<DirectMessageReaction[]>([]);
+  const [replyTo, setReplyTo] = useState<DirectMessage | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [reactionPickerId, setReactionPickerId] = useState<number | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [voiceMessageFile, setVoiceMessageFile] = useState<File | null>(null);
@@ -708,7 +717,7 @@ export default function MessagesPage() {
         supabase
           .from("direct_messages")
           .select(
-            "id, sender_id, recipient_id, content, created_at, delivered_at, read_at"
+            "id, sender_id, recipient_id, content, created_at, delivered_at, read_at, edited_at, reply_to_id"
           )
           .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
           .order("created_at", { ascending: true }),
@@ -762,6 +771,17 @@ export default function MessagesPage() {
         setActiveStoryUserIds([...new Set((storiesResult.data ?? []).map((story) => story.user_id))]);
       }
       setMessages(messagesResult.data ?? []);
+      const messageIds = ((messagesResult.data ?? []) as DirectMessage[]).map((item) => item.id);
+      if (messageIds.length) {
+        const { data: reactionRows, error: reactionError } = await supabase
+          .from("direct_message_reactions")
+          .select("id, message_id, user_id, emoji")
+          .in("message_id", messageIds);
+        if (reactionError) console.error("Could not load message reactions:", reactionError);
+        setReactions((reactionRows ?? []) as DirectMessageReaction[]);
+      } else {
+        setReactions([]);
+      }
 
       const incomingMessageIds = ((messagesResult.data ?? []) as DirectMessage[])
         .filter((item) => item.recipient_id === userId && !item.delivered_at)
@@ -1141,6 +1161,7 @@ export default function MessagesPage() {
     setShowInbox(false);
     setError("");
     setMessage("");
+    setReplyTo(null);
 
     const { error: readError } = await supabase.rpc(
       "mark_direct_messages_read",
@@ -1158,6 +1179,44 @@ export default function MessagesPage() {
     if (!/^\d+$/.test(postId)) return;
 
     router.push(`/app?post=${encodeURIComponent(postId)}`);
+  }
+
+  async function saveMessageEdit(item: DirectMessage) {
+    const content = editDraft.trim();
+    if (!content || !myId) return;
+    setError("");
+    const editedAt = new Date().toISOString();
+    const { error: updateError } = await supabase.from("direct_messages")
+      .update({ content, edited_at: editedAt }).eq("id", item.id).eq("sender_id", myId);
+    if (updateError) { setError(updateError.message); return; }
+    setMessages((current) => current.map((row) => row.id === item.id ? { ...row, content, edited_at: editedAt } : row));
+    setEditingMessageId(null);
+    setEditDraft("");
+  }
+
+  async function deleteMessage(item: DirectMessage) {
+    if (!myId || !window.confirm("Delete this message?")) return;
+    const { error: deleteError } = await supabase.from("direct_messages")
+      .delete().eq("id", item.id).eq("sender_id", myId);
+    if (deleteError) { setError(deleteError.message); return; }
+    setMessages((current) => current.filter((row) => row.id !== item.id));
+    setReactions((current) => current.filter((row) => row.message_id !== item.id));
+  }
+
+  async function toggleReaction(messageId: number, emoji: string) {
+    if (!myId) return;
+    const existing = reactions.find((row) => row.message_id === messageId && row.user_id === myId && row.emoji === emoji);
+    if (existing) {
+      const { error: deleteError } = await supabase.from("direct_message_reactions").delete().eq("id", existing.id).eq("user_id", myId);
+      if (deleteError) { setError(deleteError.message); return; }
+      setReactions((current) => current.filter((row) => row.id !== existing.id));
+    } else {
+      const { data, error: insertError } = await supabase.from("direct_message_reactions")
+        .insert({ message_id: messageId, user_id: myId, emoji }).select("id, message_id, user_id, emoji").single();
+      if (insertError) { setError(insertError.message); return; }
+      setReactions((current) => [...current, data as DirectMessageReaction]);
+    }
+    setReactionPickerId(null);
   }
 
   async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
@@ -1211,11 +1270,13 @@ export default function MessagesPage() {
           sender_id: myId,
           recipient_id: selectedUserId,
           content: storedContent,
+          reply_to_id: replyTo?.id ?? null,
         });
 
       if (insertError) throw insertError;
 
       setMessage("");
+      setReplyTo(null);
       if (voiceMessageUrlRef.current) URL.revokeObjectURL(voiceMessageUrlRef.current);
       voiceMessageUrlRef.current = null;
       setVoiceMessageUrl(null);
@@ -1642,6 +1703,7 @@ export default function MessagesPage() {
                         return (
                           <div
                             key={item.id}
+                            id={`direct-message-${item.id}`}
                             className={`flex ${
                               mine ? "justify-end" : "justify-start"
                             }`}
@@ -1654,11 +1716,25 @@ export default function MessagesPage() {
                                     : "rounded-bl-md bg-gray-100 text-gray-900"
                                 }`}
                               >
+                                {item.reply_to_id && (() => {
+                                  const replied = currentMessages.find((row) => row.id === item.reply_to_id);
+                                  return replied ? <button type="button" onClick={() => document.getElementById(`direct-message-${replied.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} className="mb-2 block max-w-full border-l-2 border-violet-400 pl-2 text-left text-xs text-gray-500"><span className="font-semibold">{replied.sender_id === myId ? "You" : displayName(selectedProfile)}</span><span className="block truncate">{getMessageParts(replied.content).text || "Media"}</span></button> : null;
+                                })()}
+                                {editingMessageId === item.id ? (
+                                  <div className="min-w-52">
+                                    <textarea value={editDraft} onChange={(event) => setEditDraft(event.target.value)} rows={2} maxLength={5000} autoFocus className="w-full resize-y rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900 outline-none focus:border-violet-400" />
+                                    <div className="mt-1 flex justify-end gap-2 text-xs">
+                                      <button type="button" onClick={() => setEditingMessageId(null)} className="text-gray-500">Cancel</button>
+                                      <button type="button" onClick={() => void saveMessageEdit(item)} className="font-semibold text-violet-700">Save</button>
+                                    </div>
+                                  </div>
+                                ) : <>
                                 {messageParts.text && (
                                   <p className="whitespace-pre-wrap break-words">
                                     {messageParts.text}
                                   </p>
                                 )}
+                                </>}
 
                                 {messageParts.postId && (
                                   <button
@@ -1734,12 +1810,28 @@ export default function MessagesPage() {
                                 )}
                               </div>
 
+                              <div className={`mt-1 flex flex-wrap items-center gap-1 px-1 ${mine ? "justify-end" : "justify-start"}`}>
+                                {Object.entries(reactions.filter((row) => row.message_id === item.id).reduce<Record<string, DirectMessageReaction[]>>((groups, row) => { (groups[row.emoji] ??= []).push(row); return groups; }, {})).map(([emoji, rows]) => (
+                                  <button key={emoji} type="button" onClick={() => void toggleReaction(item.id, emoji)} aria-label={`${emoji} ${rows.length}`} className={`rounded-full border px-2 py-0.5 text-xs ${rows.some((row) => row.user_id === myId) ? "border-violet-300 bg-violet-50" : "border-gray-200 bg-white"}`}>{emoji} {rows.length}</button>
+                                ))}
+                                <button type="button" onClick={() => setReactionPickerId(reactionPickerId === item.id ? null : item.id)} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100" aria-label="React to message">☺</button>
+                                <button type="button" onClick={() => { setReplyTo(item); messageInputRef.current?.focus(); }} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100">Reply</button>
+                                {mine && messageParts.text && !messageParts.imageUrl && !messageParts.postId && !messageParts.audioPath && (
+                                  <>
+                                    <button type="button" onClick={() => { setEditingMessageId(item.id); setEditDraft(messageParts.text); }} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100">Edit</button>
+                                    <button type="button" onClick={() => void deleteMessage(item)} className="rounded-full px-2 py-0.5 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600">Delete</button>
+                                  </>
+                                )}
+                                {reactionPickerId === item.id && <span className="flex rounded-full border border-gray-200 bg-white px-1 shadow-sm">{["👍", "❤️", "😂", "😮", "😢", "🔥"].map((emoji) => <button key={emoji} type="button" onClick={() => void toggleReaction(item.id, emoji)} className="p-1 text-base hover:bg-gray-100" aria-label={`React ${emoji}`}>{emoji}</button>)}</span>}
+                              </div>
+
                               <p
                                 className={`mt-1 px-1 text-[10px] text-gray-400 ${
                                   mine ? "text-right" : "text-left"
                                 }`}
                               >
                                 {formatTime(item.created_at)}
+                                {item.edited_at && <span className="ml-1">· edited</span>}
                                 {mine && (
                                   <span
                                     className={`ml-1.5 inline-flex font-semibold ${
@@ -1798,6 +1890,12 @@ export default function MessagesPage() {
                         <button type="button" onClick={clearVoiceMessage} aria-label={t("removeRecording")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-200" title={t("removeRecording")}>×</button>
                       </div>
                     )}
+                    {replyTo && (
+                      <div className="mb-2 flex items-center gap-3 rounded-xl border-l-2 border-violet-500 bg-violet-50 px-3 py-2 text-xs text-gray-700">
+                        <span className="min-w-0 flex-1 truncate"><strong>Replying to {replyTo.sender_id === myId ? "yourself" : displayName(selectedProfile)}</strong><span className="block truncate">{getMessageParts(replyTo.content).text || "Media"}</span></span>
+                        <button type="button" onClick={() => setReplyTo(null)} className="px-2 py-1 text-gray-500" aria-label="Cancel reply">×</button>
+                      </div>
+                    )}
                     {showEmojiPicker && (
                       <div className="mb-2 max-h-52 overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white p-2 shadow-lg" role="group" aria-label={t("emoji")}>
                         <div className="grid grid-cols-8 gap-1">
@@ -1849,7 +1947,8 @@ export default function MessagesPage() {
                         aria-label={t("writeMessage")}
                         rows={1}
                         maxLength={5000}
-                        className="max-h-32 min-h-12 min-w-0 flex-1 resize-y rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:bg-white"
+                        className="max-h-32 min-h-12 min-w-0 flex-1 resize-y rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm !text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:bg-white"
+                        style={{ WebkitTextFillColor: "currentColor", opacity: 1 }}
                       />
 
                       <button
