@@ -16,6 +16,11 @@ type StoryMedia = {
   theme?: "original" | "warm" | "cool" | "mono" | "vivid";
   captionX?: number;
   captionY?: number;
+  captionSize?: "small" | "medium" | "large";
+  captionColor?: "white" | "yellow" | "pink" | "cyan" | "black";
+  captionItalic?: boolean;
+  captionFont?: "sans" | "serif";
+  captionBackground?: boolean;
   createdAt?: number;
 };
 
@@ -129,11 +134,15 @@ const STORY_FILTERS = {
   mono: "grayscale(1)",
   vivid: "saturate(1.5) contrast(1.08)",
 } as const;
+const STORY_CAPTION_SIZE_CLASSES = { small: "text-sm", medium: "text-lg", large: "text-2xl" } as const;
+const STORY_CAPTION_COLOR_CLASSES = { white: "text-white", yellow: "text-yellow-200", pink: "text-pink-200", cyan: "text-cyan-200", black: "text-black" } as const;
 
 async function renderEditedStoryImage(
   source: Blob,
   crop: "cover" | "contain",
-  theme: keyof typeof STORY_FILTERS
+  theme: keyof typeof STORY_FILTERS,
+  zoom = 1,
+  position = { x: 50, y: 50 }
 ) {
   const sourceUrl = URL.createObjectURL(source);
   try {
@@ -150,10 +159,10 @@ async function renderEditedStoryImage(
     const scale = crop === "cover"
       ? Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight)
       : Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-    const width = image.naturalWidth * scale;
-    const height = image.naturalHeight * scale;
+    const width = image.naturalWidth * scale * zoom;
+    const height = image.naturalHeight * scale * zoom;
     context.filter = STORY_FILTERS[theme];
-    context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    context.drawImage(image, (canvas.width - width) * position.x / 100, (canvas.height - height) * position.y / 100, width, height);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not prepare this story image.")), "image/png");
     });
@@ -351,6 +360,11 @@ function parseStoryEdit(text: string | null): {
   theme?: StoryMedia["theme"];
   captionX?: number;
   captionY?: number;
+  captionSize?: StoryMedia["captionSize"];
+  captionColor?: StoryMedia["captionColor"];
+  captionItalic?: boolean;
+  captionFont?: StoryMedia["captionFont"];
+  captionBackground?: boolean;
 } {
   const match = text?.match(/^\[\[VYBE_STORY_EDIT:(.*?)\]\]\n?/);
   if (!match) return { text };
@@ -361,6 +375,11 @@ function parseStoryEdit(text: string | null): {
       theme?: string;
       captionX?: number;
       captionY?: number;
+      captionSize?: string;
+      captionColor?: string;
+      captionItalic?: boolean;
+      captionFont?: string;
+      captionBackground?: boolean;
     };
     const crop: StoryMedia["crop"] = style.crop === "contain" ? "contain" : "cover";
     const themes = ["original", "warm", "cool", "mono", "vivid"] as const;
@@ -371,6 +390,11 @@ function parseStoryEdit(text: string | null): {
       theme,
       captionX: typeof style.captionX === "number" ? Math.min(92, Math.max(8, style.captionX)) : 50,
       captionY: typeof style.captionY === "number" ? Math.min(92, Math.max(8, style.captionY)) : 76,
+      captionSize: style.captionSize === "small" || style.captionSize === "large" ? style.captionSize : "medium",
+      captionColor: ["white", "yellow", "pink", "cyan", "black"].includes(style.captionColor || "") ? style.captionColor as StoryMedia["captionColor"] : "white",
+      captionItalic: style.captionItalic === true,
+      captionFont: style.captionFont === "serif" ? "serif" : "sans",
+      captionBackground: style.captionBackground !== false,
     };
   } catch {
     return { text };
@@ -468,8 +492,15 @@ export default function Stories() {
   const [showStoryViewers, setShowStoryViewers] = useState(false);
   const [loadingStoryViewers, setLoadingStoryViewers] = useState(false);
   const [storyCrop, setStoryCrop] = useState<"cover" | "contain">("cover");
+  const [storyCropZoom, setStoryCropZoom] = useState(1);
+  const [storyCropPosition, setStoryCropPosition] = useState({ x: 50, y: 50 });
   const [storyTheme, setStoryTheme] = useState<keyof typeof STORY_FILTERS>("original");
   const [storyCaptionPosition, setStoryCaptionPosition] = useState({ x: 50, y: 76 });
+  const [storyCaptionSize, setStoryCaptionSize] = useState<"small" | "medium" | "large">("medium");
+  const [storyCaptionColor, setStoryCaptionColor] = useState<NonNullable<StoryMedia["captionColor"]>>("white");
+  const [storyCaptionItalic, setStoryCaptionItalic] = useState(false);
+  const [storyCaptionFont, setStoryCaptionFont] = useState<NonNullable<StoryMedia["captionFont"]>>("sans");
+  const [storyCaptionBackground, setStoryCaptionBackground] = useState(true);
   const [deletingStoryId, setDeletingStoryId] = useState<string | null>(null);
 
   // Highlights remain available for saving stories.
@@ -564,6 +595,11 @@ export default function Stories() {
           theme: storyEdit.theme,
           captionX: storyEdit.captionX,
           captionY: storyEdit.captionY,
+          captionSize: storyEdit.captionSize,
+          captionColor: storyEdit.captionColor,
+          captionItalic: storyEdit.captionItalic,
+          captionFont: storyEdit.captionFont,
+          captionBackground: storyEdit.captionBackground,
           createdAt: new Date(row.created_at).getTime(),
         });
 
@@ -1142,6 +1178,7 @@ export default function Stories() {
   const [showStoryComposer, setShowStoryComposer] = useState(false);
   const [storyPreviewUrl, setStoryPreviewUrl] = useState("");
   const captionDragRef = useRef(false);
+  const cropDragRef = useRef<{ x: number; y: number; position: { x: number; y: number } } | null>(null);
 
   useEffect(() => {
     const file = pendingStoryFiles[0];
@@ -1155,9 +1192,17 @@ export default function Stories() {
   }, [pendingStoryFiles, showStoryComposer]);
 
   const moveComposerCaption = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!captionDragRef.current) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
+    if (cropDragRef.current) {
+      const drag = cropDragRef.current;
+      setStoryCropPosition({
+        x: Math.min(100, Math.max(0, drag.position.x - ((event.clientX - drag.x) / bounds.width) * 100)),
+        y: Math.min(100, Math.max(0, drag.position.y - ((event.clientY - drag.y) / bounds.height) * 100)),
+      });
+      return;
+    }
+    if (!captionDragRef.current) return;
     setStoryCaptionPosition({
       x: Math.min(92, Math.max(8, ((event.clientX - bounds.left) / bounds.width) * 100)),
       y: Math.min(92, Math.max(8, ((event.clientY - bounds.top) / bounds.height) * 100)),
@@ -1194,8 +1239,15 @@ export default function Stories() {
     setPendingStoryFiles(selectedFiles);
     setStoryText("");
     setStoryCrop("cover");
+    setStoryCropZoom(1);
+    setStoryCropPosition({ x: 50, y: 50 });
     setStoryTheme("original");
     setStoryCaptionPosition({ x: 50, y: 76 });
+    setStoryCaptionSize("medium");
+    setStoryCaptionColor("white");
+    setStoryCaptionItalic(false);
+    setStoryCaptionFont("sans");
+    setStoryCaptionBackground(true);
     setShowStoryComposer(true);
   };
 
@@ -1233,7 +1285,7 @@ export default function Stories() {
       for (const file of selectedFiles) {
         const mediaType = file.type.startsWith("video/") ? "video" : "image";
         const uploadBlob = mediaType === "image"
-          ? await renderEditedStoryImage(file, storyCrop, storyTheme)
+          ? await renderEditedStoryImage(file, storyCrop, storyTheme, storyCropZoom, storyCropPosition)
           : file;
         const extension = mediaType === "image"
           ? "png"
@@ -1246,6 +1298,11 @@ export default function Stories() {
           theme: mediaType === "video" ? storyTheme : "original",
           captionX: storyCaptionPosition.x,
           captionY: storyCaptionPosition.y,
+          captionSize: storyCaptionSize,
+          captionColor: storyCaptionColor,
+          captionItalic: storyCaptionItalic,
+          captionFont: storyCaptionFont,
+          captionBackground: storyCaptionBackground,
         }));
 
         preparedStories.push({
@@ -1668,14 +1725,14 @@ export default function Stories() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
-                <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[400px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326]" onPointerMove={moveComposerCaption} onPointerUp={() => { captionDragRef.current = false; }} onPointerCancel={() => { captionDragRef.current = false; }}>
+                <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[400px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326]" onPointerDown={(event) => { if (!(event.target instanceof HTMLImageElement)) return; cropDragRef.current = { x: event.clientX, y: event.clientY, position: storyCropPosition }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={moveComposerCaption} onPointerUp={() => { captionDragRef.current = false; cropDragRef.current = null; }} onPointerCancel={() => { captionDragRef.current = false; cropDragRef.current = null; }}>
                   {pendingStoryFiles[0] && storyPreviewUrl && (pendingStoryFiles[0].type.startsWith("video/") ? (
                     <video src={storyPreviewUrl} muted playsInline controls className="h-full w-full" style={{ objectFit: storyCrop, filter: STORY_FILTERS[storyTheme] }} />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={storyPreviewUrl} alt="Story preview" className="h-full w-full" style={{ objectFit: storyCrop, filter: STORY_FILTERS[storyTheme] }} />
+                    <img src={storyPreviewUrl} alt="Story preview; drag to adjust crop" className="h-full w-full" style={{ objectFit: storyCrop, objectPosition: `${storyCropPosition.x}% ${storyCropPosition.y}%`, transform: `scale(${storyCropZoom})`, filter: STORY_FILTERS[storyTheme] }} />
                   ))}
-                  {storyText && <button type="button" onPointerDown={(event) => { event.preventDefault(); captionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className="absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl bg-black/55 px-3 py-2 text-center text-sm font-semibold text-white shadow" style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyText}</button>}
+                  {storyText && <button type="button" onPointerDown={(event) => { event.preventDefault(); captionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className={`absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl px-3 py-2 text-center font-semibold shadow ${STORY_CAPTION_SIZE_CLASSES[storyCaptionSize]} ${STORY_CAPTION_COLOR_CLASSES[storyCaptionColor]} ${storyCaptionItalic ? "italic" : "not-italic"} ${storyCaptionFont === "serif" ? "font-serif" : "font-sans"} ${storyCaptionBackground ? storyCaptionColor === "black" ? "bg-white/85" : "bg-black/55" : "bg-transparent"}`} style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyText}</button>}
                   {pendingStoryFiles.length > 1 && <span className="absolute left-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white">{pendingStoryFiles.length} stories</span>}
                 </div>
                 <div>
@@ -1683,6 +1740,12 @@ export default function Stories() {
                   <div className="grid grid-cols-2 gap-2">
                     {(["cover", "contain"] as const).map((crop) => <button key={crop} type="button" onClick={() => setStoryCrop(crop)} aria-pressed={storyCrop === crop} className={`rounded-xl border px-3 py-2 text-sm font-medium ${storyCrop === crop ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{crop === "cover" ? "Fill screen" : "Fit image"}</button>)}
                   </div>
+                  {pendingStoryFiles[0] && !pendingStoryFiles[0].type.startsWith("video/") && <div className="mt-3 space-y-2">
+                    <p className="text-xs text-gray-500">Drag the photo to position it. Adjust the crop below.</p>
+                    <label className="block text-xs font-medium text-gray-600">Zoom <input aria-label="Zoom story photo crop" type="range" min="1" max="3" step="0.01" value={storyCropZoom} onChange={(event) => setStoryCropZoom(Number(event.target.value))} className="mt-1 w-full accent-purple-700" /></label>
+                    <label className="block text-xs font-medium text-gray-600">Horizontal position <input aria-label="Set horizontal story crop position" type="range" min="0" max="100" value={storyCropPosition.x} onChange={(event) => setStoryCropPosition((current) => ({ ...current, x: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
+                    <label className="block text-xs font-medium text-gray-600">Vertical position <input aria-label="Set vertical story crop position" type="range" min="0" max="100" value={storyCropPosition.y} onChange={(event) => setStoryCropPosition((current) => ({ ...current, y: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
+                  </div>}
                 </div>
                 <div>
                   <p className="mb-2 text-sm font-semibold">Theme</p>
@@ -1693,6 +1756,24 @@ export default function Stories() {
                 <label className="block text-sm font-semibold">Add a caption
                   <textarea value={storyText} onChange={(event) => setStoryText(event.target.value.slice(0, 300))} maxLength={300} rows={2} placeholder="Write something…" aria-label="Story caption" className="mt-2 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm font-normal outline-none focus:border-purple-400" />
                 </label>
+                <div className="space-y-3 rounded-xl border border-gray-100 p-3">
+                  <div className="flex items-center gap-3">
+                    <label className="flex-1 text-xs font-semibold text-gray-600">Text size
+                      <select value={storyCaptionSize} onChange={(event) => setStoryCaptionSize(event.target.value as typeof storyCaptionSize)} className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-800">
+                        <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
+                      </select>
+                    </label>
+                    <button type="button" onClick={() => setStoryCaptionItalic((current) => !current)} aria-pressed={storyCaptionItalic} className={`mt-4 rounded-lg border px-3 py-2 text-sm font-serif italic ${storyCaptionItalic ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200 text-gray-600"}`}>Italic</button>
+                    <button type="button" onClick={() => setStoryCaptionFont((current) => current === "sans" ? "serif" : "sans")} aria-pressed={storyCaptionFont === "serif"} className={`mt-4 rounded-lg border px-3 py-2 text-sm ${storyCaptionFont === "serif" ? "border-purple-500 bg-purple-50 font-serif text-purple-800" : "border-gray-200 font-sans text-gray-600"}`}>Font</button>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-gray-600">Text color</p>
+                    <div className="flex gap-2">
+                      {(["white", "yellow", "pink", "cyan", "black"] as const).map((color) => <button key={color} type="button" onClick={() => setStoryCaptionColor(color)} aria-label={`${color} caption text`} aria-pressed={storyCaptionColor === color} className={`h-8 w-8 rounded-full border-2 ${color === "white" ? "bg-white" : color === "yellow" ? "bg-yellow-200" : color === "pink" ? "bg-pink-200" : color === "cyan" ? "bg-cyan-200" : "bg-black"} ${storyCaptionColor === color ? "border-purple-600 ring-2 ring-purple-200" : "border-gray-300"}`} />)}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setStoryCaptionBackground((current) => !current)} aria-pressed={storyCaptionBackground} className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600">{storyCaptionBackground ? "Remove text background" : "Add text background"}</button>
+                </div>
                 <button type="button" onClick={() => void uploadStory()} disabled={uploading} className="w-full rounded-xl bg-purple-700 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-800 disabled:opacity-50">{uploading ? "Posting story…" : `Post ${pendingStoryFiles.length > 1 ? "stories" : "story"}`}</button>
               </div>
             </div>
@@ -1822,7 +1903,7 @@ export default function Stories() {
                 className="pointer-events-none absolute z-[5] max-w-[90%] -translate-x-1/2 -translate-y-1/2"
                 style={{ left: `${activeMedia.captionX ?? 50}%`, top: `${activeMedia.captionY ?? 76}%` }}
               >
-                <p className="whitespace-pre-wrap break-words rounded-xl bg-black/45 px-4 py-2 text-center text-lg font-semibold text-white shadow-lg">
+                <p className={`whitespace-pre-wrap break-words rounded-xl px-4 py-2 text-center font-semibold shadow-lg ${STORY_CAPTION_SIZE_CLASSES[activeMedia.captionSize ?? "medium"]} ${STORY_CAPTION_COLOR_CLASSES[activeMedia.captionColor ?? "white"]} ${activeMedia.captionItalic ? "italic" : "not-italic"} ${activeMedia.captionFont === "serif" ? "font-serif" : "font-sans"} ${activeMedia.captionBackground === false ? "bg-transparent shadow-none" : activeMedia.captionColor === "black" ? "bg-white/85" : "bg-black/45"}`}>
                   {activeMedia.text}
                 </p>
               </div>

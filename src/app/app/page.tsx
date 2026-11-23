@@ -21,6 +21,8 @@ import { useLanguage, type Language } from "./LanguageProvider";
 
 const SAVED_KEY = "project-one-saved-posts";
 const NOTIFICATIONS_KEY = "project-one-notifications";
+const STORY_CAPTION_SIZE_CLASSES = { small: "text-sm", medium: "text-lg", large: "text-2xl" } as const;
+const STORY_CAPTION_COLOR_CLASSES = { white: "text-white", yellow: "text-yellow-200", pink: "text-pink-200", cyan: "text-cyan-200", black: "text-black" } as const;
 
 type SimulatedNotification = {
   id: number;
@@ -679,8 +681,15 @@ export default function AppHome() {
   const [storyShareDraft, setStoryShareDraft] = useState<StoryShareDraft | null>(null);
   const [storyShareCaption, setStoryShareCaption] = useState("");
   const [storyShareCrop, setStoryShareCrop] = useState<"cover" | "contain">("cover");
+  const [storyShareZoom, setStoryShareZoom] = useState(1);
+  const [storySharePosition, setStorySharePosition] = useState({ x: 50, y: 50 });
   const [storyShareTheme, setStoryShareTheme] = useState<"original" | "warm" | "cool" | "mono" | "vivid">("original");
   const [storyCaptionPosition, setStoryCaptionPosition] = useState({ x: 50, y: 76 });
+  const [storyCaptionSize, setStoryCaptionSize] = useState<"small" | "medium" | "large">("medium");
+  const [storyCaptionColor, setStoryCaptionColor] = useState<"white" | "yellow" | "pink" | "cyan" | "black">("white");
+  const [storyCaptionItalic, setStoryCaptionItalic] = useState(false);
+  const [storyCaptionFont, setStoryCaptionFont] = useState<"sans" | "serif">("sans");
+  const [storyCaptionBackground, setStoryCaptionBackground] = useState(true);
   const storyCaptionDragRef = useRef(false);
 
   const updateStoryCaptionPosition = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1809,8 +1818,15 @@ export default function AppHome() {
       });
       setStoryShareCaption(String(post.content || "").trim().slice(0, 180));
       setStoryShareCrop("cover");
+      setStoryShareZoom(1);
+      setStorySharePosition({ x: 50, y: 50 });
       setStoryShareTheme("original");
       setStoryCaptionPosition({ x: 50, y: 76 });
+      setStoryCaptionSize("medium");
+      setStoryCaptionColor("white");
+      setStoryCaptionItalic(false);
+      setStoryCaptionFont("sans");
+      setStoryCaptionBackground(true);
       setShareMode("story-editor");
     } catch (error) {
       console.error("Could not share post to story:", error);
@@ -1845,11 +1861,11 @@ export default function AppHome() {
         const scale = storyShareCrop === "cover"
           ? Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight)
           : Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-        const drawWidth = image.naturalWidth * scale;
-        const drawHeight = image.naturalHeight * scale;
+        const drawWidth = image.naturalWidth * scale * storyShareZoom;
+        const drawHeight = image.naturalHeight * scale * storyShareZoom;
         const filters = { original: "none", warm: "sepia(0.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" };
         context.filter = filters[storyShareTheme];
-        context.drawImage(image, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+        context.drawImage(image, (canvas.width - drawWidth) * storySharePosition.x / 100, (canvas.height - drawHeight) * storySharePosition.y / 100, drawWidth, drawHeight);
         mediaBlob = await new Promise<Blob>((resolve, reject) => {
           canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not prepare the story image.")), "image/png");
         });
@@ -1866,6 +1882,11 @@ export default function AppHome() {
         theme: draft.isVideo ? storyShareTheme : "original",
         captionX: storyCaptionPosition.x,
         captionY: storyCaptionPosition.y,
+        captionSize: storyCaptionSize,
+        captionColor: storyCaptionColor,
+        captionItalic: storyCaptionItalic,
+        captionFont: storyCaptionFont,
+        captionBackground: storyCaptionBackground,
       }));
       const storyText = [storyShareCaption.trim(), `Shared post: ${getShareUrl(draft.postId)}`].filter(Boolean).join("\n");
       const { error: storyError } = await supabase.from("stories").insert({
@@ -2703,9 +2724,9 @@ export default function AppHome() {
                     {storyShareDraft.isVideo ? (
                       <video src={storyShareDraft.mediaUrl} muted playsInline controls className={`h-full w-full ${storyShareCrop === "cover" ? "object-cover" : "object-contain"}`} style={{ filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
                     ) : (
-                      <img src={storyShareDraft.mediaUrl} alt="Story preview" className="h-full w-full object-contain" style={{ objectFit: storyShareCrop, filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
+                      <img src={storyShareDraft.mediaUrl} alt="Story preview" className="h-full w-full object-contain" style={{ objectFit: storyShareCrop, objectPosition: `${storySharePosition.x}% ${storySharePosition.y}%`, transform: `scale(${storyShareZoom})`, filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
                     )}
-                    {(storyShareCaption || storyShareDraft.postId) && <div className="pointer-events-none absolute inset-x-4 bottom-8 text-center"><span className="rounded-xl bg-black/50 px-3 py-2 text-sm font-semibold text-white shadow">{storyShareCaption || "Shared post"}</span></div>}
+                    {(storyShareCaption || storyShareDraft.postId) && <div className="pointer-events-none absolute inset-x-4 bottom-8 text-center"><span className={`rounded-xl px-3 py-2 font-semibold shadow ${STORY_CAPTION_SIZE_CLASSES[storyCaptionSize]} ${STORY_CAPTION_COLOR_CLASSES[storyCaptionColor]} ${storyCaptionItalic ? "italic" : "not-italic"} ${storyCaptionFont === "serif" ? "font-serif" : "font-sans"} ${storyCaptionBackground ? storyCaptionColor === "black" ? "bg-white/85" : "bg-black/50" : "bg-transparent shadow-none"}`}>{storyShareCaption || "Shared post"}</span></div>}
                   </div>
 
                   <div>
@@ -2713,6 +2734,12 @@ export default function AppHome() {
                     <div className="grid grid-cols-2 gap-2">
                       {(["cover", "contain"] as const).map((crop) => <button key={crop} type="button" onClick={() => setStoryShareCrop(crop)} aria-pressed={storyShareCrop === crop} className={`rounded-xl border px-3 py-2 text-sm font-medium capitalize ${storyShareCrop === crop ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{crop === "cover" ? "Fill screen" : "Fit image"}</button>)}
                     </div>
+                    {!storyShareDraft.isVideo && <div className="mt-3 space-y-2">
+                      <p className="text-xs text-gray-500">Adjust the image crop before posting.</p>
+                      <label className="block text-xs font-medium text-gray-600">Zoom <input aria-label="Zoom shared story crop" type="range" min="1" max="3" step="0.01" value={storyShareZoom} onChange={(event) => setStoryShareZoom(Number(event.target.value))} className="mt-1 w-full accent-purple-700" /></label>
+                      <label className="block text-xs font-medium text-gray-600">Horizontal position <input aria-label="Set horizontal shared story crop position" type="range" min="0" max="100" value={storySharePosition.x} onChange={(event) => setStorySharePosition((current) => ({ ...current, x: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
+                      <label className="block text-xs font-medium text-gray-600">Vertical position <input aria-label="Set vertical shared story crop position" type="range" min="0" max="100" value={storySharePosition.y} onChange={(event) => setStorySharePosition((current) => ({ ...current, y: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
+                    </div>}
                   </div>
 
                   <div>
@@ -2725,6 +2752,20 @@ export default function AppHome() {
                   <label className="block text-sm font-semibold">Add a caption
                     <textarea value={storyShareCaption} onChange={(event) => setStoryShareCaption(event.target.value.slice(0, 180))} maxLength={180} rows={2} placeholder="Write something…" className="mt-2 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm font-normal outline-none focus:border-purple-400" />
                   </label>
+                  <div className="space-y-3 rounded-xl border border-gray-100 p-3">
+                    <div className="flex items-center gap-3">
+                      <label className="flex-1 text-xs font-semibold text-gray-600">Text size
+                        <select value={storyCaptionSize} onChange={(event) => setStoryCaptionSize(event.target.value as typeof storyCaptionSize)} className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-800"><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select>
+                      </label>
+                      <button type="button" onClick={() => setStoryCaptionItalic((current) => !current)} aria-pressed={storyCaptionItalic} className={`mt-4 rounded-lg border px-3 py-2 text-sm font-serif italic ${storyCaptionItalic ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200 text-gray-600"}`}>Italic</button>
+                      <button type="button" onClick={() => setStoryCaptionFont((current) => current === "sans" ? "serif" : "sans")} aria-pressed={storyCaptionFont === "serif"} className={`mt-4 rounded-lg border px-3 py-2 text-sm ${storyCaptionFont === "serif" ? "border-purple-500 bg-purple-50 font-serif text-purple-800" : "border-gray-200 font-sans text-gray-600"}`}>Font</button>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-gray-600">Text color</p>
+                      <div className="flex gap-2">{(["white", "yellow", "pink", "cyan", "black"] as const).map((color) => <button key={color} type="button" onClick={() => setStoryCaptionColor(color)} aria-label={`${color} caption text`} aria-pressed={storyCaptionColor === color} className={`h-8 w-8 rounded-full border-2 ${color === "white" ? "bg-white" : color === "yellow" ? "bg-yellow-200" : color === "pink" ? "bg-pink-200" : color === "cyan" ? "bg-cyan-200" : "bg-black"} ${storyCaptionColor === color ? "border-purple-600 ring-2 ring-purple-200" : "border-gray-300"}`} />)}</div>
+                    </div>
+                    <button type="button" onClick={() => setStoryCaptionBackground((current) => !current)} aria-pressed={storyCaptionBackground} className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600">{storyCaptionBackground ? "Remove text background" : "Add text background"}</button>
+                  </div>
 
                   <button type="button" onClick={() => void publishStoryDraft()} disabled={shareStoryBusy} className="w-full rounded-xl bg-purple-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-purple-800 disabled:opacity-60">{shareStoryBusy ? "Posting story…" : "Post story"}</button>
                 </div>
