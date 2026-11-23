@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage, type Language } from "../LanguageProvider";
 import { useOnlinePresence } from "../PresenceProvider";
-import { useDirectCall } from "./useDirectCall";
+import { useDirectCallContext } from "../DirectCallProvider";
 import ContactAvatarIcon from "../ContactAvatarIcon";
 
 type Profile = {
@@ -28,6 +28,20 @@ type DirectMessage = {
   edited_at: string | null;
   reply_to_id: number | null;
 };
+
+type MissedCall = {
+  call_id: string;
+  caller_id: string;
+  recipient_id: string;
+  caller_name: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type ChatTimelineItem =
+  | { kind: "message"; key: string; created_at: string; message: DirectMessage }
+  | { kind: "missed_call"; key: string; created_at: string; call: MissedCall };
 
 type DirectMessageReaction = { id: number; message_id: number; user_id: string; emoji: string };
 
@@ -660,6 +674,7 @@ export default function MessagesPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeStoryUserIds, setActiveStoryUserIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [missedCalls, setMissedCalls] = useState<MissedCall[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
   const [unreadByUser, setUnreadByUser] = useState<Record<string, number>>({});
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -687,10 +702,8 @@ export default function MessagesPage() {
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceMessageUrlRef = useRef<string | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const messageGestureRef = useRef<{ item: DirectMessage; startX: number; startY: number; timer: number | null; held: boolean } | null>(null);
-  const { call: directCall, callError, remoteStream, muted: callMuted, toggleMute, startCall, answerCall, endCall } = useDirectCall(supabase, myId);
-  const [speakerOn, setSpeakerOn] = useState(true);
+  const { call: directCall, callError, startCall } = useDirectCallContext();
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -748,6 +761,19 @@ export default function MessagesPage() {
           .select("blocked_id")
           .eq("blocker_id", userId),
       ]);
+
+      const { data: missedCallRows, error: missedCallsError } = await supabase
+        .from("direct_call_sessions")
+        .select("call_id,caller_id,recipient_id,caller_name,status,created_at,updated_at")
+        .or(`caller_id.eq.${userId},recipient_id.eq.${userId}`)
+        .eq("status", "missed")
+        .order("created_at", { ascending: true });
+      if (missedCallsError) {
+        console.error("Could not load missed calls:", missedCallsError.message);
+        setMissedCalls([]);
+      } else {
+        setMissedCalls((missedCallRows ?? []) as MissedCall[]);
+      }
 
       if (profilesResult.error) {
         throw new Error(profilesResult.error.message);
@@ -980,6 +1006,11 @@ export default function MessagesPage() {
       )
       .subscribe();
 
+    const callsChannel = supabase
+      .channel(`direct-call-history-${myId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "direct_call_sessions" }, refresh)
+      .subscribe();
+
     const deletionsChannel = supabase
       .channel(`direct-message-deletions-${myId}`)
       .on(
@@ -1007,6 +1038,7 @@ export default function MessagesPage() {
       window.clearInterval(refreshTimer);
       void supabase.removeChannel(messagesChannel);
       void supabase.removeChannel(notificationsChannel);
+      void supabase.removeChannel(callsChannel);
       void supabase.removeChannel(deletionsChannel);
       void supabase.removeChannel(profilesChannel);
     };
@@ -1027,10 +1059,16 @@ export default function MessagesPage() {
       (item.sender_id === myId && item.recipient_id === selectedUserId) ||
       (item.sender_id === selectedUserId && item.recipient_id === myId)
   );
-  const callPeerProfile = directCall
-    ? profiles.find((profile) => profile.id === directCall.peerId)
-    : undefined;
-
+  const currentTimeline: ChatTimelineItem[] = [
+    ...currentMessages.map((message): ChatTimelineItem => ({
+      kind: "message", key: `message-${message.id}`, created_at: message.created_at, message,
+    })),
+    ...missedCalls
+      .filter((item) => item.caller_id === selectedUserId || item.recipient_id === selectedUserId)
+      .map((call): ChatTimelineItem => ({
+        kind: "missed_call", key: `call-${call.call_id}`, created_at: call.updated_at ?? call.created_at, call,
+      })),
+  ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const conversations = useMemo(() => {
     return profiles
       .map((profile) => {
@@ -1041,41 +1079,43 @@ export default function MessagesPage() {
         );
 
         const latest = theirMessages[theirMessages.length - 1];
+        const theirMissedCalls = missedCalls.filter(
+          (item) => item.caller_id === profile.id || item.recipient_id === profile.id
+        );
+        const latestMissedCall = theirMissedCalls[theirMissedCalls.length - 1];
+        const latestActivity = [
+          ...(latest ? [{ kind: "message" as const, created_at: latest.created_at, message: latest }] : []),
+          ...(latestMissedCall ? [{ kind: "missed_call" as const, created_at: latestMissedCall.updated_at ?? latestMissedCall.created_at, call: latestMissedCall }] : []),
+        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
 
         return {
           profile,
           latest,
+          latestActivity,
           count: theirMessages.length,
           unread: unreadByUser[profile.id] ?? 0,
           blocked: blockedIds.includes(profile.id),
         };
       })
-      .filter(({ profile, latest }) => {
+      .filter(({ profile, latest, latestActivity }) => {
         const query = search.trim().toLowerCase();
 
-        if (!query) return Boolean(latest);
+        if (!query) return Boolean(latest || latestActivity);
 
         return (
           (profile.display_name ?? "").toLowerCase().includes(query) ||
           (profile.username ?? "").toLowerCase().includes(query) ||
-          (latest?.content ?? "").toLowerCase().includes(query)
+          (latest?.content ?? "").toLowerCase().includes(query) ||
+          (latestActivity?.kind === "missed_call" && "missed call".includes(query))
         );
       })
       .sort((a, b) => {
-        const aTime = a.latest ? new Date(a.latest.created_at).getTime() : 0;
-        const bTime = b.latest ? new Date(b.latest.created_at).getTime() : 0;
+        const aTime = a.latestActivity ? new Date(a.latestActivity.created_at).getTime() : 0;
+        const bTime = b.latestActivity ? new Date(b.latestActivity.created_at).getTime() : 0;
 
         return bTime - aTime;
       });
-  }, [profiles, messages, myId, search, unreadByUser, blockedIds]);
-
-  useEffect(() => {
-    const audio = remoteAudioRef.current;
-    if (!audio) return;
-    audio.srcObject = remoteStream;
-    audio.muted = !speakerOn;
-    if (remoteStream) void audio.play().catch(() => undefined);
-  }, [remoteStream, speakerOn]);
+  }, [profiles, messages, missedCalls, myId, search, unreadByUser, blockedIds]);
 
   useEffect(() => () => {
     if (voiceRecorderRef.current?.state === "recording") voiceRecorderRef.current.stop();
@@ -1472,7 +1512,7 @@ export default function MessagesPage() {
                 {t("loading")}
               </p>
             ) : conversations.length > 0 ? (
-              conversations.map(({ profile, latest, count, unread, blocked }) => {
+              conversations.map(({ profile, latest, latestActivity, count, unread, blocked }) => {
                 const hasActiveStory = activeStoryUserIds.includes(profile.id);
                 const latestParts = latest
                   ? getMessageParts(latest.content)
@@ -1480,6 +1520,8 @@ export default function MessagesPage() {
 
                 const preview = blocked
                   ? t("blockedPreview")
+                  : latestActivity?.kind === "missed_call"
+                    ? "Missed call"
                   : latest
                     ? latestParts?.text ||
                       (latestParts?.imageUrl
@@ -1554,9 +1596,9 @@ export default function MessagesPage() {
                         </p>
 
                         <div className="flex shrink-0 items-center gap-2">
-                          {latest && (
+                          {latestActivity && (
                             <span className="text-[11px] text-gray-400">
-                              {formatTime(latest.created_at)}
+                              {formatTime(latestActivity.created_at)}
                             </span>
                           )}
 
@@ -1731,7 +1773,7 @@ export default function MessagesPage() {
                       </span>
                     </div>
 
-                    {currentMessages.length === 0 ? (
+                    {currentTimeline.length === 0 ? (
                       <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
                         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
                           <svg
@@ -1758,13 +1800,26 @@ export default function MessagesPage() {
                         </p>
                       </div>
                     ) : (
-                      currentMessages.map((item) => {
+                      currentTimeline.map((entry) => {
+                        if (entry.kind === "missed_call") {
+                          const missedCallWasToMe = entry.call.recipient_id === myId;
+                          return (
+                            <div key={entry.key} className="flex justify-center py-1">
+                              <div className="flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-4 py-2 text-xs font-medium text-red-700">
+                                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5.5 4.5h3l1.5 4-2 1.5a14 14 0 0 0 6 6l1.5-2 4 1.5v3A2 2 0 0 1 17.4 20C10 19.6 4.4 14 4 6.6a2 2 0 0 1 1.5-2.1Z" /><path d="m4 4 16 16" /></svg>
+                                <span>{missedCallWasToMe ? "Missed call" : "Unanswered call"}</span>
+                                <span className="text-red-400">· {formatTime(entry.created_at)}</span>
+                              </div>
+                            </div>
+                          );
+                        }
+                        const item = entry.message;
                         const mine = item.sender_id === myId;
                         const messageParts = getMessageParts(item.content);
 
                         return (
                           <div
-                            key={item.id}
+                            key={entry.key}
                             id={`direct-message-${item.id}`}
                             className={`flex ${
                               mine ? "justify-end" : "justify-start"
@@ -2147,36 +2202,6 @@ export default function MessagesPage() {
               <button type="button" onClick={() => void deleteMessage(deleteTarget, "me")} className="rounded-xl border border-gray-200 px-4 py-3 text-left text-sm font-medium text-gray-800 hover:bg-gray-50">Delete for me</button>
               {deleteTarget.sender_id === myId && <button type="button" onClick={() => void deleteMessage(deleteTarget, "everyone")} className="rounded-xl border border-red-200 px-4 py-3 text-left text-sm font-medium text-red-700 hover:bg-red-50">Delete for everyone</button>}
               <button type="button" onClick={() => setDeleteTarget(null)} className="rounded-xl px-4 py-3 text-sm font-medium text-gray-500 hover:bg-gray-50">Cancel</button>
-            </div>
-          </section>
-        </div>
-      )}
-      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" aria-label={t("activeCall")} />
-      {directCall && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label={t(directCall.status === "incoming" ? "incomingCall" : directCall.status === "active" ? "activeCall" : "calling")}>
-          <section className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-              <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M5.5 4.5h3l1.5 4-2 1.5a14 14 0 0 0 6 6l1.5-2 4 1.5v3A2 2 0 0 1 17.4 20C10 19.6 4.4 14 4 6.6a2 2 0 0 1 1.5-2.1Z" />
-              </svg>
-            </div>
-            <h2 className="mt-4 text-lg font-bold text-gray-950">{callPeerProfile ? displayName(callPeerProfile) : directCall.peerName}</h2>
-            <p className="mt-1 text-sm text-gray-500">{t(directCall.status === "incoming" ? "incomingCall" : directCall.status === "active" ? "activeCall" : directCall.status === "connecting" ? "connectingCall" : directCall.status === "ringing" ? "ringingCall" : "calling")}</p>
-            <div className="mt-6 flex flex-wrap justify-center gap-3">
-              {directCall.status === "incoming" && (
-                <button type="button" onClick={() => void answerCall()} className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-700">{t("answerCall")}</button>
-              )}
-              {(directCall.status === "active" || directCall.status === "connecting") && (
-                <>
-                  <button type="button" onClick={toggleMute} aria-pressed={callMuted} className={`flex min-w-20 flex-col items-center gap-1 rounded-2xl px-4 py-3 text-xs font-semibold ${callMuted ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800 hover:bg-gray-200"}`}>
-                    <span className="text-lg" aria-hidden="true">{callMuted ? "🔇" : "🎙️"}</span>{t(callMuted ? "unmuteCall" : "muteCall")}
-                  </button>
-                  <button type="button" onClick={() => setSpeakerOn((enabled) => !enabled)} aria-pressed={speakerOn} className={`flex min-w-20 flex-col items-center gap-1 rounded-2xl px-4 py-3 text-xs font-semibold ${speakerOn ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800 hover:bg-gray-200"}`}>
-                    <span className="text-lg" aria-hidden="true">{speakerOn ? "🔊" : "🔈"}</span>{t(speakerOn ? "speakerOn" : "speakerOff")}
-                  </button>
-                </>
-              )}
-              <button type="button" onClick={() => void endCall(directCall.status === "incoming" ? "decline" : "end")} className="rounded-full bg-red-600 px-6 py-3 text-sm font-semibold text-white hover:bg-red-700">{t(directCall.status === "incoming" ? "declineCall" : "endCall")}</button>
             </div>
           </section>
         </div>

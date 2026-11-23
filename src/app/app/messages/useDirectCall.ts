@@ -9,6 +9,7 @@ type CallSignal = {
   callId: string;
   fromUserId: string;
   toUserId: string;
+  peerName?: string;
   offer?: RTCSessionDescriptionInit;
   answer?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -34,8 +35,30 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pendingRemoteCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const receivedRemoteCandidatesRef = useRef<Set<string>>(new Set());
   const pendingLocalCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const localDescriptionSentRef = useRef(false);
+  const ringTimeoutRef = useRef<number | null>(null);
+  const ringAudioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        if (!ringAudioContextRef.current || ringAudioContextRef.current.state === "closed") {
+          ringAudioContextRef.current = new AudioContext();
+        }
+        if (ringAudioContextRef.current.state === "suspended") void ringAudioContextRef.current.resume();
+      } catch {
+        // The incoming-call banner and operating-system notification remain available.
+      }
+    };
+    document.addEventListener("pointerdown", unlockAudio);
+    document.addEventListener("keydown", unlockAudio);
+    return () => {
+      document.removeEventListener("pointerdown", unlockAudio);
+      document.removeEventListener("keydown", unlockAudio);
+    };
+  }, []);
 
   useEffect(() => {
     if (!callError) return;
@@ -95,6 +118,21 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     if (result !== "ok") throw new Error("Could not send the call signal.");
   }, [userId]);
 
+  const sendIceCandidate = useCallback(async (candidate: RTCIceCandidateInit) => {
+    const activeCall = callRef.current;
+    if (!activeCall || !userId) return;
+    const { error } = await supabase.from("direct_call_ice_candidates").insert({
+      call_id: activeCall.callId,
+      from_user_id: userId,
+      to_user_id: activeCall.peerId,
+      candidate,
+    });
+    if (error) {
+      console.warn("Persistent call audio signaling is unavailable; using the active call channel.", error.message);
+      await sendSignal("ice", { candidate });
+    }
+  }, [sendSignal, supabase, userId]);
+
   const stopCall = useCallback(async () => {
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
@@ -103,8 +141,11 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     setMuted(false);
     setRemoteStream(null);
     pendingRemoteCandidatesRef.current = [];
+    receivedRemoteCandidatesRef.current.clear();
     pendingLocalCandidatesRef.current = [];
     localDescriptionSentRef.current = false;
+    if (ringTimeoutRef.current !== null) window.clearTimeout(ringTimeoutRef.current);
+    ringTimeoutRef.current = null;
     updateCall(null);
     if (outboundChannelRef.current) {
       await supabase.removeChannel(outboundChannelRef.current);
@@ -126,9 +167,9 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     localDescriptionSentRef.current = true;
     const candidates = pendingLocalCandidatesRef.current.splice(0);
     for (const candidate of candidates) {
-      await sendSignal("ice", { candidate });
+      await sendIceCandidate(candidate);
     }
-  }, [sendSignal]);
+  }, [sendIceCandidate]);
 
   const createPeerConnection = useCallback((stream: MediaStream) => {
     const connection = new RTCPeerConnection({
@@ -145,7 +186,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       if (!localDescriptionSentRef.current) {
         pendingLocalCandidatesRef.current.push(candidate);
       } else {
-        void sendSignal("ice", { candidate }).catch((error: unknown) => {
+        void sendIceCandidate(candidate).catch((error: unknown) => {
           setCallError(error instanceof Error ? error.message : "Could not send call audio.");
         });
       }
@@ -160,7 +201,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     };
     peerConnectionRef.current = connection;
     return connection;
-  }, [sendSignal, updateCall]);
+  }, [sendIceCandidate, updateCall]);
 
   const handleSignal = useCallback(async (payload: unknown) => {
     if (!payload || typeof payload !== "object") return;
@@ -173,7 +214,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       updateCall({
         callId: signal.callId,
         peerId: signal.fromUserId,
-        peerName: "VYBE member",
+        peerName: signal.peerName || "VYBE member",
         status: "incoming",
         offer: signal.offer,
       });
@@ -189,6 +230,9 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       await flushRemoteCandidates();
       updateCall({ ...current, status: "connecting" });
     } else if (signal.kind === "ice" && signal.candidate) {
+      const candidateKey = JSON.stringify(signal.candidate);
+      if (receivedRemoteCandidatesRef.current.has(candidateKey)) return;
+      receivedRemoteCandidatesRef.current.add(candidateKey);
       const connection = peerConnectionRef.current;
       if (connection?.remoteDescription) await connection.addIceCandidate(signal.candidate);
       else pendingRemoteCandidatesRef.current.push(signal.candidate);
@@ -196,6 +240,45 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       await stopCall();
     }
   }, [flushRemoteCandidates, stopCall, updateCall, userId]);
+
+  const receiveCallSession = useCallback(async (session: {
+    call_id: string;
+    caller_id: string;
+    recipient_id: string;
+    caller_name: string;
+    offer: RTCSessionDescriptionInit;
+    status: string;
+  }) => {
+    if (session.recipient_id !== userId || session.status !== "ringing" || callRef.current) return;
+    const call: DirectCall = {
+      callId: session.call_id,
+      peerId: session.caller_id,
+      peerName: session.caller_name || "VYBE member",
+      status: "incoming",
+      offer: session.offer,
+    };
+    updateCall(call);
+    setCallError("");
+
+    const { data: candidates, error } = await supabase.from("direct_call_ice_candidates")
+      .select("from_user_id,to_user_id,candidate")
+      .eq("call_id", session.call_id)
+      .eq("to_user_id", userId)
+      .order("id", { ascending: true });
+    if (error) {
+      console.error("Could not load call connection details:", error.message);
+      return;
+    }
+    for (const row of candidates ?? []) {
+      await handleSignal({
+        kind: "ice",
+        callId: session.call_id,
+        fromUserId: row.from_user_id,
+        toUserId: row.to_user_id,
+        candidate: row.candidate,
+      });
+    }
+  }, [handleSignal, supabase, updateCall, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -209,6 +292,39 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
         });
       });
     inboxChannelRef.current = channel;
+    const persistentChannel = supabase
+      .channel(`direct-call-persistence:${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "direct_call_sessions", filter: `recipient_id=eq.${userId}` }, ({ new: row }) => {
+        void receiveCallSession(row as Parameters<typeof receiveCallSession>[0]);
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "direct_call_ice_candidates", filter: `to_user_id=eq.${userId}` }, ({ new: row }) => {
+        void handleSignal({
+          kind: "ice",
+          callId: row.call_id,
+          fromUserId: row.from_user_id,
+          toUserId: row.to_user_id,
+          candidate: row.candidate,
+        }).catch((error: unknown) => setCallError(error instanceof Error ? error.message : "Could not receive call audio."));
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "direct_call_sessions", filter: `recipient_id=eq.${userId}` }, ({ new: row }) => {
+        const current = callRef.current;
+        if (current?.callId === row.call_id && ["declined", "ended"].includes(String(row.status))) void stopCall();
+      })
+      .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          void supabase.from("direct_call_sessions")
+            .select("call_id,caller_id,recipient_id,caller_name,offer,status")
+            .eq("recipient_id", userId)
+            .eq("status", "ringing")
+            .gt("created_at", new Date(Date.now() - 60_000).toISOString())
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+            .then(({ data }) => { if (data) void receiveCallSession(data as Parameters<typeof receiveCallSession>[0]); });
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("Direct call session subscription failed:", error?.message || status);
+        }
+      });
     channel.subscribe((status, error) => {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         console.error(
@@ -220,8 +336,9 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     return () => {
       inboxChannelRef.current = null;
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(persistentChannel);
     };
-  }, [handleSignal, supabase, userId]);
+  }, [handleSignal, receiveCallSession, stopCall, supabase, userId]);
 
   const startCall = useCallback(async (peerId: string, peerName: string) => {
     if (!userId || callRef.current) return;
@@ -239,13 +356,56 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
       updateCall({ callId, peerId, peerName, status: "ringing" });
-      await sendSignal("offer", { offer: connection.localDescription ?? offer });
+      const { error: sessionError } = await supabase.from("direct_call_sessions").insert({
+        call_id: callId,
+        caller_id: userId,
+        recipient_id: peerId,
+        caller_name: peerName,
+        offer: connection.localDescription ?? offer,
+      });
+      if (sessionError) console.warn("Persistent call invitations are unavailable until the call migration is applied:", sessionError.message);
+      await sendSignal("offer", { offer: connection.localDescription ?? offer, peerName });
       await flushLocalCandidates();
+      const { error: notificationError } = await supabase.from("notifications").insert({
+        user_id: peerId,
+        actor_id: userId,
+        type: "call",
+        message: "is calling you",
+      });
+      if (notificationError) console.error("The call started, but its notification could not be saved:", notificationError);
+      if (!sessionError) {
+        const { error: pushError } = await supabase.functions.invoke("notify-incoming-call", { body: { callId } });
+        if (pushError) console.warn("Background call notification could not be sent:", pushError.message);
+      }
+      ringTimeoutRef.current = window.setTimeout(() => {
+        const ringingCall = callRef.current;
+        if (ringingCall?.callId !== callId || ringingCall.status !== "ringing") return;
+        void (async () => {
+          try { await sendSignal("end"); } catch { /* The remote call may already be unreachable. */ }
+          const { data: missedCall, error: missedCallError } = await supabase.from("direct_call_sessions")
+            .update({ status: "missed", updated_at: new Date().toISOString() })
+            .eq("call_id", callId)
+            .eq("status", "ringing")
+            .select("call_id")
+            .maybeSingle();
+          if (missedCallError) console.error("Could not save missed call:", missedCallError);
+          if (missedCall) {
+            const { error: missedNotificationError } = await supabase.from("notifications").insert({
+              user_id: peerId,
+              actor_id: userId,
+              type: "missed_call",
+              message: "missed your call",
+            });
+            if (missedNotificationError) console.error("Could not notify about missed call:", missedNotificationError);
+          }
+          await stopCall();
+        })();
+      }, 60_000);
     } catch (error) {
       setCallError(error instanceof Error ? error.message : "Could not start the call.");
       await stopCall();
     }
-  }, [createPeerConnection, ensureOutboundChannel, flushLocalCandidates, sendSignal, stopCall, updateCall, userId]);
+  }, [createPeerConnection, ensureOutboundChannel, flushLocalCandidates, sendSignal, stopCall, supabase, updateCall, userId]);
 
   const answerCall = useCallback(async () => {
     const current = callRef.current;
@@ -263,6 +423,11 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       await flushRemoteCandidates();
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
+      const { error: sessionError } = await supabase.from("direct_call_sessions")
+        .update({ status: "accepted", updated_at: new Date().toISOString() })
+        .eq("call_id", current.callId)
+        .eq("recipient_id", userId);
+      if (sessionError) console.warn("Could not persist the accepted call status:", sessionError.message);
       await sendSignal("answer", { answer: connection.localDescription ?? answer });
       await flushLocalCandidates();
       updateCall({ ...current, status: "connecting" });
@@ -270,16 +435,24 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
       setCallError(error instanceof Error ? error.message : "Could not answer the call.");
       await stopCall();
     }
-  }, [createPeerConnection, ensureOutboundChannel, flushLocalCandidates, flushRemoteCandidates, sendSignal, stopCall, updateCall]);
+  }, [createPeerConnection, ensureOutboundChannel, flushLocalCandidates, flushRemoteCandidates, sendSignal, stopCall, supabase, updateCall, userId]);
 
   const endCall = useCallback(async (kind: "end" | "decline" = "end") => {
+    const current = callRef.current;
     if (callRef.current && outboundChannelRef.current) {
       try { await sendSignal(kind); } catch (error) {
         console.error("Could not send call end signal:", error);
       }
     }
+    if (current) {
+      const status = kind === "decline" ? "declined" : "ended";
+      const { error } = await supabase.from("direct_call_sessions")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("call_id", current.callId);
+      if (error) console.error("Could not update call status:", error);
+    }
     await stopCall();
-  }, [sendSignal, stopCall]);
+  }, [sendSignal, stopCall, supabase]);
 
   const toggleMute = useCallback(() => {
     const nextMuted = !muted;
@@ -291,7 +464,7 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     const shouldRing = call?.status === "incoming" || call?.status === "ringing";
     if (!shouldRing) return;
 
-    let context: AudioContext | null = null;
+    let context = ringAudioContextRef.current;
     let interval: number | null = null;
     const playTone = () => {
       if (!context || context.state === "closed") return;
@@ -312,7 +485,10 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     };
 
     try {
-      context = new AudioContext();
+      if (!context || context.state === "closed") {
+        context = new AudioContext();
+        ringAudioContextRef.current = context;
+      }
       void context.resume().then(playTone).catch(() => undefined);
       interval = window.setInterval(playTone, 2200);
     } catch {
@@ -325,7 +501,6 @@ export function useDirectCall(supabase: SupabaseClient, userId: string) {
     return () => {
       if (interval !== null) window.clearInterval(interval);
       window.navigator.vibrate?.(0);
-      if (context && context.state !== "closed") void context.close();
     };
   }, [call?.callId, call?.status]);
 

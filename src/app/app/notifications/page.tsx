@@ -506,6 +506,7 @@ function formatTime(
 function getNotificationIcon(type: string) {
   if (type === "like") return "heart";
   if (type === "comment" || type === "message") return "message";
+  if (type === "call") return "phone";
   if (type === "follow") return "user-plus";
   if (type === "mention") return "mention";
   return "bell";
@@ -568,6 +569,10 @@ function NotificationIcon({ type }: { type: string }) {
         <path d="M19 8v6M16 11h6" />
       </svg>
     );
+  }
+
+  if (type === "call") {
+    return <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" {...common}><path d="M5.5 4.5h3l1.5 4-2 1.5a14 14 0 0 0 6 6l1.5-2 4 1.5v3A2 2 0 0 1 17.4 20C10 19.6 4.4 14 4 6.6a2 2 0 0 1 1.5-2.1Z" /></svg>;
   }
 
   if (type === "mention") {
@@ -1308,7 +1313,7 @@ export default function NotificationsPage() {
                     notification.databaseId
                       ? `database-${notification.databaseId}`
                       : notification.actorId &&
-                          notification.type === "message"
+                          (notification.type === "message" || notification.type === "call")
                         ? `message-sender-${notification.actorId}`
                         : `local-${notification.id}`
                   }
@@ -1319,7 +1324,7 @@ export default function NotificationsPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (notification.type === "message") {
+                      if (notification.type === "message" || notification.type === "call") {
                         viewMessage(notification);
                       } else if (
                         notification.type === "like" ||
@@ -1352,6 +1357,8 @@ export default function NotificationsPage() {
                               ? "bg-sky-500 text-white"
                               : notification.type === "message"
                                 ? "bg-emerald-600 text-white"
+                                : notification.type === "call"
+                                  ? "bg-violet-600 text-white"
                                 : "bg-gray-800 text-white"
                       }`}
                     >
@@ -1363,7 +1370,7 @@ export default function NotificationsPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (notification.type === "message") {
+                        if (notification.type === "message" || notification.type === "call") {
                           viewMessage(notification);
                         } else if (
                           notification.type === "like" ||
@@ -1404,7 +1411,7 @@ export default function NotificationsPage() {
                       </p>
                     </button>
 
-                    {notification.type === "message" && (
+                    {(notification.type === "message" || notification.type === "call") && (
                       <button
                         type="button"
                         onClick={() => viewMessage(notification)}

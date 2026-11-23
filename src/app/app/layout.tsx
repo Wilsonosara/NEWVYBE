@@ -10,6 +10,7 @@ import {
 } from "./LanguageProvider";
 import { createClient } from "../../../utils/supabase/client";
 import { OnlinePresenceProvider } from "./PresenceProvider";
+import { DirectCallProvider } from "./DirectCallProvider";
 
 const NOTIFICATIONS_KEY = "project-one-notifications";
 
@@ -669,7 +670,9 @@ export default function AppLayout({
   return (
     <LanguageProvider>
       <OnlinePresenceProvider>
-        <AppLayoutContent>{children}</AppLayoutContent>
+        <DirectCallProvider>
+          <AppLayoutContent>{children}</AppLayoutContent>
+        </DirectCallProvider>
       </OnlinePresenceProvider>
     </LanguageProvider>
   );

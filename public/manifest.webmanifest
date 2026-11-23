@@ -1,0 +1,13 @@
+{
+  "name": "VYBE",
+  "short_name": "VYBE",
+  "description": "Your world, your people, your story.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#202124",
+  "icons": [
+    { "src": "/vybe-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

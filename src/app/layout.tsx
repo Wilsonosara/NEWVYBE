@@ -20,6 +20,9 @@ export const metadata: Metadata = {
   description:
     "VYBE — Connect, share, discover, and find your people.",
   applicationName: "VYBE",
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/vybe-icon.svg", apple: "/vybe-icon.svg" },
+  appleWebApp: { capable: true, title: "VYBE", statusBarStyle: "black-translucent" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

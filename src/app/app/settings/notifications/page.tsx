@@ -53,6 +53,17 @@ export default function NotificationSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [callAlertsEnabled, setCallAlertsEnabled] = useState(false);
+  const [callAlertsBusy, setCallAlertsBusy] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">("default");
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushPermission("unsupported");
+      return;
+    }
+    setPushPermission(Notification.permission);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -148,6 +159,74 @@ export default function NotificationSettingsPage() {
     [preferences, saving, userId]
   );
 
+  const enableCallAlerts = async () => {
+    if (!userId || callAlertsBusy) return;
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      setError("Call alerts need push keys configured by the VYBE administrator.");
+      return;
+    }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setError("This browser does not support background call notifications.");
+      return;
+    }
+    setCallAlertsBusy(true);
+    setError("");
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission !== "granted") throw new Error("Allow notifications in your browser settings to receive call alerts.");
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      const base64Key = vapidPublicKey.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(vapidPublicKey.length / 4) * 4, "=");
+      const applicationServerKey = Uint8Array.from(atob(base64Key), (char) => char.charCodeAt(0));
+      const subscription = await registration.pushManager.getSubscription() ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+      const { error: saveError } = await createClient().from("push_subscriptions").upsert({
+        endpoint: subscription.endpoint,
+        user_id: userId,
+        subscription: subscription.toJSON(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "endpoint" });
+      if (saveError) throw saveError;
+      setCallAlertsEnabled(true);
+      setStatus("Call alerts are enabled on this device.");
+    } catch (enableError) {
+      setError(enableError instanceof Error ? enableError.message : "Could not enable call alerts.");
+    } finally {
+      setCallAlertsBusy(false);
+    }
+  };
+
+  const disableCallAlerts = async () => {
+    if (!userId || callAlertsBusy) return;
+    setCallAlertsBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      const subscription = await registration?.pushManager.getSubscription();
+      if (subscription) {
+        const { error: deleteError } = await createClient().from("push_subscriptions").delete().eq("endpoint", subscription.endpoint).eq("user_id", userId);
+        if (deleteError) throw deleteError;
+        await subscription.unsubscribe();
+      }
+      setCallAlertsEnabled(false);
+      setStatus("Call alerts are disabled on this device.");
+    } catch (disableError) {
+      setError(disableError instanceof Error ? disableError.message : "Could not disable call alerts.");
+    } finally {
+      setCallAlertsBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!userId || !("serviceWorker" in navigator)) return;
+    let active = true;
+    void navigator.serviceWorker.getRegistration("/").then((registration) => registration?.pushManager.getSubscription()).then(async (subscription) => {
+      if (!subscription || !active) return;
+      const { data } = await createClient().from("push_subscriptions").select("endpoint").eq("endpoint", subscription.endpoint).eq("user_id", userId).maybeSingle();
+      if (active) setCallAlertsEnabled(Boolean(data));
+    }).catch((loadError: unknown) => console.error("Could not load call notification settings:", loadError));
+    return () => { active = false; };
+  }, [userId]);
+
   return (
     <main className="min-h-screen bg-white text-gray-900">
       <div className="mx-auto min-h-screen w-full max-w-2xl border-x border-gray-100 px-4 pb-16">
@@ -176,6 +255,16 @@ export default function NotificationSettingsPage() {
           </p>
         ) : (
           <section className="mt-4">
+            <div className="flex items-center justify-between gap-5 border-b border-gray-100 py-5">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium">Incoming calls</h2>
+                <p className="mt-1 text-sm leading-5 text-gray-500">Ring and show a device notification when someone calls, including when VYBE is in the background.</p>
+                {pushPermission === "unsupported" && <p className="mt-1 text-xs text-amber-700">Background call alerts are not supported in this browser.</p>}
+              </div>
+              <button type="button" disabled={callAlertsBusy || pushPermission === "unsupported"} onClick={() => void (callAlertsEnabled ? disableCallAlerts() : enableCallAlerts())} className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${callAlertsEnabled ? "bg-gray-700" : "bg-gray-900"}`}>
+                {callAlertsBusy ? "Saving…" : callAlertsEnabled ? "Disable" : "Enable"}
+              </button>
+            </div>
             {SETTINGS.map((setting) => {
               const enabled = preferences[setting.key];
 
