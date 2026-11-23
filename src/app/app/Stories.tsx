@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 import ContactAvatarIcon from "./ContactAvatarIcon";
+import { usePosts } from "./PostContext";
 
 type StoryMedia = {
   mediaId: string;
@@ -449,6 +450,7 @@ function getUsername(profile?: ProfileRow) {
 }
 
 export default function Stories() {
+  const { uploadFilesWithProgress, completeUploadProgress, failUploadProgress } = usePosts();
   const [stories, setStories] = useState<Story[]>([]);
   const [randomStories, setRandomStories] = useState<Story[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -1202,6 +1204,8 @@ export default function Stories() {
 
     const selectedFiles = pendingStoryFiles;
     setUploading(true);
+    setShowStoryComposer(false);
+    setViewerIndex(null);
 
     try {
       const supabase = createClient();
@@ -1218,6 +1222,14 @@ export default function Stories() {
         return;
       }
 
+      const preparedStories: Array<{
+        mediaPath: string;
+        mediaType: "image" | "video";
+        uploadBlob: Blob;
+        fileName: string;
+        textContent: string;
+      }> = [];
+
       for (const file of selectedFiles) {
         const mediaType = file.type.startsWith("video/") ? "video" : "image";
         const uploadBlob = mediaType === "image"
@@ -1229,15 +1241,6 @@ export default function Stories() {
 
         const mediaPath = `${user.id}/stories/${crypto.randomUUID()}.${extension}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from(BUCKET)
-          .upload(mediaPath, uploadBlob, {
-            contentType: uploadBlob.type || file.type,
-            upsert: false,
-          });
-
-        if (uploadError) throw uploadError;
-
         const storyStyle = encodeURIComponent(JSON.stringify({
           crop: mediaType === "video" ? storyCrop : "cover",
           theme: mediaType === "video" ? storyTheme : "original",
@@ -1245,19 +1248,44 @@ export default function Stories() {
           captionY: storyCaptionPosition.y,
         }));
 
-        const { error: insertError } = await supabase.from("stories").insert({
-          user_id: user.id,
-          media_path: mediaPath,
-          media_type: mediaType,
-          text_content: `[[VYBE_STORY_EDIT:${storyStyle}]]\n${storyText.trim()}`.slice(0, 500),
-          expires_at: new Date(Date.now() + STORY_DURATION).toISOString(),
+        preparedStories.push({
+          mediaPath,
+          mediaType,
+          uploadBlob,
+          fileName: file.name,
+          textContent: `[[VYBE_STORY_EDIT:${storyStyle}]]\n${storyText.trim()}`.slice(0, 500),
         });
-
-        if (insertError) {
-          await supabase.storage.from(BUCKET).remove([mediaPath]);
-          throw insertError;
-        }
       }
+
+      const unlinkedPaths = new Set(preparedStories.map((story) => story.mediaPath));
+      try {
+        await uploadFilesWithProgress(preparedStories.map((story) => ({
+          path: story.mediaPath,
+          blob: story.uploadBlob,
+          fileName: story.fileName,
+          contentType: story.uploadBlob.type,
+        })), "story");
+
+        for (const story of preparedStories) {
+          const { error: insertError } = await supabase.from("stories").insert({
+            user_id: user.id,
+            media_path: story.mediaPath,
+            media_type: story.mediaType,
+            text_content: story.textContent,
+            expires_at: new Date(Date.now() + STORY_DURATION).toISOString(),
+          });
+
+          if (insertError) throw insertError;
+          unlinkedPaths.delete(story.mediaPath);
+        }
+      } catch (insertError) {
+        if (unlinkedPaths.size > 0) {
+          await supabase.storage.from(BUCKET).remove(Array.from(unlinkedPaths));
+        }
+        throw insertError;
+      }
+
+      completeUploadProgress();
 
       setViewerIndex(null);
       setMediaIndex(0);
@@ -1274,6 +1302,8 @@ export default function Stories() {
       );
     } catch (error) {
       console.error("Could not upload story:", error);
+      if (pendingStoryFiles.length > 0) setShowStoryComposer(true);
+      failUploadProgress(error instanceof Error ? error.message : "Could not save your story. Please try again.", "story");
 
       showNotice(
         error instanceof Error
@@ -1667,12 +1697,6 @@ export default function Stories() {
               </div>
             </div>
           </div>
-        )}
-
-        {uploading && (
-          <p className="mt-3 text-sm font-medium text-green-700">
-            Uploading your story media...
-          </p>
         )}
 
         {notice && (

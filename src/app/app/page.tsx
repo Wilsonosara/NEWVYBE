@@ -633,6 +633,9 @@ export default function AppHome() {
     posts,
     postComments: allPostComments,
     addComment,
+    uploadFilesWithProgress,
+    completeUploadProgress,
+    failUploadProgress,
     toggleCommentLike,
     deletePost,
     deleteComment,
@@ -1855,8 +1858,8 @@ export default function AppHome() {
 
       const storyPath = `${draft.userId}/stories/${crypto.randomUUID()}.${extension}`;
       const contentType = draft.isVideo ? mediaBlob.type || "video/mp4" : "image/png";
-      const { error: uploadError } = await supabase.storage.from("post-media").upload(storyPath, mediaBlob, { contentType, upsert: false });
-      if (uploadError) throw uploadError;
+      setShareDialogPost(null);
+      await uploadFilesWithProgress([{ path: storyPath, blob: mediaBlob, fileName: `story.${extension}`, contentType }], "story");
 
       const storyStyle = encodeURIComponent(JSON.stringify({
         crop: draft.isVideo ? storyShareCrop : "cover",
@@ -1877,6 +1880,7 @@ export default function AppHome() {
         throw storyError;
       }
 
+      completeUploadProgress();
       URL.revokeObjectURL(draft.mediaUrl);
       setStoryShareDraft(null);
       setShareMode("options");
@@ -1884,6 +1888,7 @@ export default function AppHome() {
       window.dispatchEvent(new Event("project-one-stories-updated"));
     } catch (error) {
       console.error("Could not publish edited story:", error);
+      failUploadProgress(error instanceof Error ? error.message : "Could not share this post to your story.", "story");
       setShareStatus(error instanceof Error ? error.message : "Could not share this post to your story.");
     } finally {
       setShareStoryBusy(false);

@@ -8,7 +8,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePosts } from "../PostContext";
 
 const worlds = [
@@ -411,6 +411,7 @@ function CropDialog({ file, onCancel, onApply }: CropDialogProps) {
 
 function CreatePageContent() {
   const { addPost } = usePosts();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   const requestedClub = searchParams.get("club")?.trim() || "";
@@ -652,7 +653,7 @@ function CreatePageContent() {
         keywords.length ? keywords.map((keyword) => `#${keyword}`).join(" ") : "",
       ].filter(Boolean).join("\n\n");
 
-      await addPost(
+      const newPostId = await addPost(
         postContent,
         world,
         filesToPublish.length > 0 ? filesToPublish : undefined,
@@ -667,8 +668,7 @@ function CreatePageContent() {
       setKeywordInput("");
       setWorld(requestedClub ? "Sports" : "Social");
       clearMedia();
-
-      window.alert("Your post has been published successfully.");
+      router.push(newPostId ? `/app?post=${encodeURIComponent(String(newPostId))}` : "/app");
     } catch (err) {
       console.error("Error publishing post:", err);
       setError(

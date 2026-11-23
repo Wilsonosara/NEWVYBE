@@ -18,13 +18,17 @@ import { ensureProfileForUser } from "../../../utils/supabase/ensure-profile";
 type PostContextType = {
   posts: Post[];
   postComments: Record<number, PostComment[]>;
+  uploadStatus: PostUploadStatus | null;
+  uploadFilesWithProgress: (assets: UploadAsset[], title: string) => Promise<void>;
+  completeUploadProgress: () => void;
+  failUploadProgress: (message: string, title?: string) => void;
   addPost: (
     content: string,
     world: string,
     mediaFile?: File | File[],
     clubSlug?: string,
     videoThumbnail?: File
-  ) => Promise<void>;
+  ) => Promise<number | null>;
   deletePost: (postId: number) => Promise<void>;
   likePost: (postId: number) => Promise<void>;
   unlikePost: (postId: number) => Promise<void>;
@@ -36,6 +40,23 @@ type PostContextType = {
   ) => Promise<void>;
   toggleCommentLike: (postId: number, commentId: number) => Promise<void>;
   deleteComment: (postId: number, commentId: number) => Promise<void>;
+};
+
+type PostUploadStatus = {
+  title?: string;
+  percent: number;
+  currentFile: string;
+  completedFiles: number;
+  totalFiles: number;
+  phase: "uploading" | "saving" | "complete" | "error";
+  message?: string;
+};
+
+type UploadAsset = {
+  path: string;
+  blob: Blob;
+  fileName: string;
+  contentType?: string;
 };
 
 export type PostComment = {
@@ -106,6 +127,60 @@ type UploadedMedia = {
 
 const PostContext = createContext<PostContextType | null>(null);
 const VOICE_COMMENT_PREFIX = "__VYBE_AUDIO__:";
+
+function uploadPostFileWithProgress(
+  path: string,
+  blob: Blob,
+  fileName: string,
+  contentType: string,
+  accessToken: string,
+  onProgress: (loadedBytes: number) => void
+) {
+  return new Promise<void>((resolve, reject) => {
+    const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    if (!baseUrl || !apiKey) {
+      reject(new Error("Upload configuration is missing."));
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("cacheControl", "3600");
+    const fileBody = blob.type === contentType
+      ? blob
+      : new Blob([blob], { type: contentType });
+    formData.append("", fileBody, fileName);
+
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const request = new XMLHttpRequest();
+    request.open("POST", `${baseUrl.replace(/\/$/, "")}/storage/v1/object/post-media/${encodedPath}`);
+    request.setRequestHeader("apikey", apiKey);
+    request.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+    request.setRequestHeader("x-upsert", "false");
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.min(event.loaded, blob.size));
+    };
+    request.onerror = () => reject(new Error(`Could not upload ${fileName}. Check your connection and try again.`));
+    request.onabort = () => reject(new Error(`Upload of ${fileName} was cancelled.`));
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) {
+        onProgress(blob.size);
+        resolve();
+        return;
+      }
+
+      let message = `Could not upload ${fileName}.`;
+      try {
+        const payload = JSON.parse(request.responseText) as { message?: string; error?: string; statusCode?: string };
+        message = payload.message || payload.error || message;
+      } catch {
+        // Keep the fallback message when Storage returns a non-JSON response.
+      }
+      reject(new Error(message));
+    };
+    request.send(formData);
+  });
+}
 
 function isVideoUpload(file: File) {
   return file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|avi|mpeg|mpeg1|mpeg2|mpg|mpe|mpv|m1v|m2v|vob|ogv|wmv|3gp)$/i.test(file.name);
@@ -256,9 +331,53 @@ export function PostProvider({
     Record<number, PostComment[]>
   >({});
   const [isLoaded, setIsLoaded] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<PostUploadStatus | null>(null);
 
   const postsRef = useRef<Post[]>([]);
   const voiceObjectUrlsRef = useRef<string[]>([]);
+  const uploadStatusTimeoutRef = useRef<number | null>(null);
+
+  const completeUploadProgress = useCallback(() => {
+    setUploadStatus((current) => current ? { ...current, percent: 100, currentFile: "", phase: "complete" } : null);
+    if (uploadStatusTimeoutRef.current !== null) window.clearTimeout(uploadStatusTimeoutRef.current);
+    uploadStatusTimeoutRef.current = window.setTimeout(() => setUploadStatus(null), 5000);
+  }, []);
+
+  const failUploadProgress = useCallback((message: string, title = "post") => {
+    setUploadStatus((current) => ({ ...(current ?? { percent: 0, completedFiles: 0, totalFiles: 0 }), title, currentFile: "", phase: "error", message }));
+    if (uploadStatusTimeoutRef.current !== null) window.clearTimeout(uploadStatusTimeoutRef.current);
+    uploadStatusTimeoutRef.current = window.setTimeout(() => setUploadStatus(null), 8000);
+  }, []);
+
+  const uploadFilesWithProgress = useCallback(async (assets: UploadAsset[], title: string) => {
+    if (!assets.length) return;
+    const supabase = createClient();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session?.access_token) throw new Error("Please log in before uploading media.");
+
+    if (uploadStatusTimeoutRef.current !== null) window.clearTimeout(uploadStatusTimeoutRef.current);
+    const totalBytes = assets.reduce((total, asset) => total + asset.blob.size, 0);
+    let uploadedBytes = 0;
+    let completedFiles = 0;
+    setUploadStatus({ title, percent: 0, currentFile: assets[0].fileName, completedFiles: 0, totalFiles: assets.length, phase: "uploading" });
+
+    try {
+      for (const asset of assets) {
+        const contentType = asset.contentType || asset.blob.type || "application/octet-stream";
+        await uploadPostFileWithProgress(asset.path, asset.blob, asset.fileName, contentType, session.access_token, (loaded) => {
+          const percent = totalBytes ? Math.min(99, Math.round(((uploadedBytes + loaded) / totalBytes) * 100)) : 99;
+          setUploadStatus({ title, percent, currentFile: asset.fileName, completedFiles, totalFiles: assets.length, phase: "uploading" });
+        });
+        uploadedBytes += asset.blob.size;
+        completedFiles += 1;
+      }
+      setUploadStatus({ title, percent: 100, currentFile: "", completedFiles: assets.length, totalFiles: assets.length, phase: "saving" });
+    } catch (error) {
+      failUploadProgress(error instanceof Error ? error.message : "Upload failed. Please try again.");
+      throw error;
+    }
+  }, [failUploadProgress]);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -620,7 +739,7 @@ export function PostProvider({
     mediaFile?: File | File[],
     clubSlug?: string,
     videoThumbnail?: File
-  ) {
+  ): Promise<number | null> {
     const cleanContent = content.trim();
 
     const mediaFiles = mediaFile
@@ -629,7 +748,7 @@ export function PostProvider({
         : [mediaFile]
       : [];
 
-    if (!cleanContent && mediaFiles.length === 0) return;
+    if (!cleanContent && mediaFiles.length === 0) return null;
 
     if (mediaFiles.length > 10) throw new Error("A post can contain up to 10 media items.");
 
@@ -687,6 +806,26 @@ export function PostProvider({
     const uploadedStoragePaths: string[] = [];
 
     try {
+      const uploadItemsCount = mediaFiles.length + (videoThumbnail && mediaFiles.some(isVideoUpload) ? 1 : 0);
+      const totalUploadBytes = mediaFiles.reduce((total, file) => total + file.size, 0) +
+        (videoThumbnail && mediaFiles.some(isVideoUpload) ? videoThumbnail.size : 0);
+      let uploadedBytes = 0;
+      let completedFiles = 0;
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error("Please log in before publishing a post.");
+
+      if (uploadItemsCount > 0) {
+        if (uploadStatusTimeoutRef.current !== null) window.clearTimeout(uploadStatusTimeoutRef.current);
+        setUploadStatus({ title: "post", percent: 0, currentFile: mediaFiles[0]?.name || "Media", completedFiles: 0, totalFiles: uploadItemsCount, phase: "uploading" });
+      }
+
+      const reportProgress = (fileName: string, loadedBytes: number) => {
+        if (uploadItemsCount === 0 || totalUploadBytes === 0) return;
+        const percent = Math.min(99, Math.round(((uploadedBytes + loadedBytes) / totalUploadBytes) * 100));
+        setUploadStatus({ title: "post", percent, currentFile: fileName, completedFiles, totalFiles: uploadItemsCount, phase: "uploading" });
+      };
+
       for (let index = 0; index < mediaFiles.length; index += 1) {
         const file = mediaFiles[index];
         const isVideo = isVideoUpload(file);
@@ -698,28 +837,19 @@ export function PostProvider({
 
         const storagePath = `${user.id}/${Date.now()}-${index}-${safeName}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from("post-media")
-          .upload(storagePath, file, {
-            upsert: false,
-            contentType: getUploadContentType(file),
-          });
-
-        if (uploadError) throw uploadError;
+        await uploadPostFileWithProgress(storagePath, file, file.name, getUploadContentType(file), session.access_token, (loaded) => reportProgress(file.name, loaded));
         uploadedStoragePaths.push(storagePath);
+        uploadedBytes += file.size;
+        completedFiles += 1;
 
         let thumbnailId: string | undefined;
         if (isVideo && videoThumbnail) {
           const thumbnailPath = `${user.id}/${Date.now()}-${index}-cover.jpg`;
-          const { error: thumbnailUploadError } = await supabase.storage
-            .from("post-media")
-            .upload(thumbnailPath, videoThumbnail, {
-              upsert: false,
-              contentType: "image/jpeg",
-            });
-          if (thumbnailUploadError) throw thumbnailUploadError;
+          await uploadPostFileWithProgress(thumbnailPath, videoThumbnail, videoThumbnail.name, "image/jpeg", session.access_token, (loaded) => reportProgress("Video cover", loaded));
           thumbnailId = `post-media/${thumbnailPath}`;
           uploadedStoragePaths.push(thumbnailPath);
+          uploadedBytes += videoThumbnail.size;
+          completedFiles += 1;
         }
 
         uploadedMedia.push({
@@ -735,6 +865,9 @@ export function PostProvider({
 
       const mediaItems = uploadedMedia.map((item) => item.media);
       const firstMedia = mediaItems[0];
+      if (uploadItemsCount > 0) {
+        setUploadStatus({ title: "post", percent: 100, currentFile: "", completedFiles: uploadItemsCount, totalFiles: uploadItemsCount, phase: "saving" });
+      }
 
       const normalizedClubSlug = clubSlug?.trim() || null;
 
@@ -771,6 +904,10 @@ export function PostProvider({
 
         return updatedPosts;
       });
+      if (uploadItemsCount > 0) {
+        completeUploadProgress();
+      }
+      return newPost.id;
     } catch (error) {
       if (uploadedStoragePaths.length > 0) {
         const { error: cleanupError } = await supabase.storage
@@ -783,6 +920,11 @@ export function PostProvider({
             cleanupError
           );
         }
+      }
+
+      if (mediaFiles.length > 0) {
+        const message = error instanceof Error ? error.message : "Post upload failed. Please try again.";
+        failUploadProgress(message, "post");
       }
 
       throw error;
@@ -1224,6 +1366,10 @@ export function PostProvider({
       value={{
         posts,
         postComments,
+        uploadStatus,
+        uploadFilesWithProgress,
+        completeUploadProgress,
+        failUploadProgress,
         addPost,
         deletePost,
         likePost,
@@ -1234,6 +1380,24 @@ export function PostProvider({
       }}
     >
       {children}
+      {uploadStatus && (
+        <div className="pointer-events-none fixed bottom-24 right-4 z-[80] w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white/95 p-4 text-gray-800 shadow-xl backdrop-blur-sm sm:bottom-5" role="status" aria-live="polite">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">
+                {uploadStatus.phase === "uploading" ? `Uploading ${uploadStatus.title || "post media"}` : uploadStatus.phase === "saving" ? `Finishing your ${uploadStatus.title || "post"}` : uploadStatus.phase === "complete" ? `${(uploadStatus.title || "Post").replace(/^./, (letter) => letter.toUpperCase())} published` : `${(uploadStatus.title || "Upload").replace(/^./, (letter) => letter.toUpperCase())} upload failed`}
+              </p>
+              {uploadStatus.phase === "uploading" && <p className="mt-1 truncate text-xs text-gray-500">{uploadStatus.currentFile}</p>}
+              {uploadStatus.phase === "saving" && <p className="mt-1 text-xs text-gray-500">Saving your {uploadStatus.title || "post"} details…</p>}
+              {uploadStatus.phase === "complete" && <p className="mt-1 text-xs text-gray-500">Your {uploadStatus.title || "post"} is ready.</p>}
+              {uploadStatus.phase === "error" && <p className="mt-1 text-xs text-red-600">{uploadStatus.message}</p>}
+            </div>
+            {(uploadStatus.phase === "uploading" || uploadStatus.phase === "saving") && <span className="shrink-0 text-sm font-semibold tabular-nums">{uploadStatus.percent}%</span>}
+          </div>
+          {(uploadStatus.phase === "uploading" || uploadStatus.phase === "saving" || uploadStatus.phase === "complete") && <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100"><div className={`h-full rounded-full bg-[#7d80e8] transition-[width] duration-200 ${uploadStatus.phase === "saving" ? "animate-pulse" : ""}`} style={{ width: `${uploadStatus.percent}%` }} /></div>}
+          {uploadStatus.phase === "uploading" && <p className="mt-2 text-right text-[11px] text-gray-400">You can keep using VYBE while this uploads.</p>}
+        </div>
+      )}
     </PostContext.Provider>
   );
 }
