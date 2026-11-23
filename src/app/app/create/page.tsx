@@ -14,12 +14,7 @@ import { usePosts } from "../PostContext";
 const worlds = [
   "Social",
   "Sports",
-  "Learn",
   "Career",
-  "Business",
-  "Gaming",
-  "Entertainment",
-  "Create",
 ];
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -430,11 +425,43 @@ function CreatePageContent() {
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
+  const [videoCover, setVideoCover] = useState<File | null>(null);
+  const [videoCoverPreview, setVideoCoverPreview] = useState("");
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const videoElementRef = useRef<HTMLVideoElement>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [error, setError] = useState("");
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!videoCover) {
+      const clearPreview = window.setTimeout(() => setVideoCoverPreview(""), 0);
+      return () => window.clearTimeout(clearPreview);
+    }
+    const url = URL.createObjectURL(videoCover);
+    const updatePreview = window.setTimeout(() => setVideoCoverPreview(url), 0);
+    return () => {
+      window.clearTimeout(updatePreview);
+      URL.revokeObjectURL(url);
+    };
+  }, [videoCover]);
+
+  async function saveCurrentVideoFrame() {
+    const video = videoElementRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+    if (!blob) return;
+    setVideoCover(new File([blob], "video-cover.jpg", { type: "image/jpeg" }));
+  }
 
   useEffect(() => {
     if (!requestedClub) return;
@@ -543,6 +570,9 @@ function CreatePageContent() {
 
     setError("");
     setSelectedVideo(file);
+    setVideoCover(null);
+    setVideoDuration(0);
+    setVideoCurrentTime(0);
     setSelectedMediaOrder((current) => [...current, file]);
   }
 
@@ -571,6 +601,9 @@ function CreatePageContent() {
   function clearMedia() {
     setSelectedImages([]);
     setSelectedVideo(null);
+    setVideoCover(null);
+    setVideoDuration(0);
+    setVideoCurrentTime(0);
     setSelectedMediaOrder([]);
 
     if (photoInputRef.current) {
@@ -625,7 +658,8 @@ function CreatePageContent() {
         filesToPublish.length > 0 ? filesToPublish : undefined,
         world === "Sports" && requestedClub
           ? requestedClub
-          : undefined
+          : undefined,
+        selectedVideo ? videoCover ?? undefined : undefined
       );
 
       setPost("");
@@ -695,8 +729,7 @@ function CreatePageContent() {
               <p className="mb-3 text-xs text-[#8996a2]">Choose up to 10 items, including photos and one video · 50 MB max per file</p>
             </div>
 
-            {(selectedImages.length > 0 || !selectedVideo) && (
-              <div className="mt-4">
+            <div className="mt-4">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-sm font-medium text-gray-800">
                     {selectedImages.length > 0 ? `Selected photos (${selectedImages.length})` : "Photos"}
@@ -765,21 +798,47 @@ function CreatePageContent() {
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+            </div>
 
             {selectedVideo && videoPreview && (
               <div className="relative mt-5 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
                 <video
+                  ref={videoElementRef}
                   src={videoPreview}
                   controls
+                  playsInline
+                  onLoadedMetadata={(event) => {
+                    const duration = event.currentTarget.duration;
+                    setVideoDuration(Number.isFinite(duration) ? duration : 0);
+                    if (duration > 0) {
+                      event.currentTarget.currentTime = Math.min(0.25, duration / 10);
+                      setVideoCurrentTime(event.currentTarget.currentTime);
+                    }
+                  }}
+                  onTimeUpdate={(event) => setVideoCurrentTime(event.currentTarget.currentTime)}
+                  onSeeked={() => { if (!videoCover) void saveCurrentVideoFrame(); }}
                   className="max-h-[440px] w-full"
                 />
+
+                <div className="space-y-3 border-t border-gray-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-gray-800">Choose video cover</p>
+                    <button type="button" onClick={() => void saveCurrentVideoFrame()} disabled={!videoDuration || isPublishing} className="rounded-full bg-[#eef0f7] px-3 py-2 text-xs font-semibold text-[#445563] disabled:opacity-50">Use this frame</button>
+                  </div>
+                  <input aria-label="Choose video cover frame" type="range" min={0} max={videoDuration || 1} step="0.1" value={videoCurrentTime} onChange={(event) => { const time = Number(event.target.value); setVideoCurrentTime(time); if (videoElementRef.current) videoElementRef.current.currentTime = time; }} disabled={!videoDuration || isPublishing} className="w-full accent-[#7d80e8]" />
+                  <div className="flex items-center gap-3">
+                    {videoCoverPreview ? <img src={videoCoverPreview} alt="Selected video cover preview" className="h-16 w-24 rounded-lg bg-black object-cover" /> : <div className="h-16 w-24 animate-pulse rounded-lg bg-gray-200" />}
+                    <p className="text-xs text-gray-500">Drag to a frame, then choose it as the cover. This image appears before the video plays.</p>
+                  </div>
+                </div>
 
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedVideo(null);
+                    setVideoCover(null);
+                    setVideoDuration(0);
+                    setVideoCurrentTime(0);
                     setSelectedMediaOrder((current) => current.filter((item) => item !== selectedVideo));
                     if (videoInputRef.current) videoInputRef.current.value = "";
                   }}

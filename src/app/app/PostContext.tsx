@@ -22,7 +22,8 @@ type PostContextType = {
     content: string,
     world: string,
     mediaFile?: File | File[],
-    clubSlug?: string
+    clubSlug?: string,
+    videoThumbnail?: File
   ) => Promise<void>;
   deletePost: (postId: number) => Promise<void>;
   likePost: (postId: number) => Promise<void>;
@@ -177,7 +178,8 @@ function isValidPostMedia(value: unknown): value is PostMedia {
   return (
     typeof media.mediaId === "string" &&
     (media.mediaType === "image" || media.mediaType === "video") &&
-    typeof media.mediaName === "string"
+    typeof media.mediaName === "string" &&
+    (media.thumbnailId === undefined || typeof media.thumbnailId === "string")
   );
 }
 
@@ -616,7 +618,8 @@ export function PostProvider({
     content: string,
     world: string,
     mediaFile?: File | File[],
-    clubSlug?: string
+    clubSlug?: string,
+    videoThumbnail?: File
   ) {
     const cleanContent = content.trim();
 
@@ -681,6 +684,7 @@ export function PostProvider({
       "VYBE user";
 
     const uploadedMedia: UploadedMedia[] = [];
+    const uploadedStoragePaths: string[] = [];
 
     try {
       for (let index = 0; index < mediaFiles.length; index += 1) {
@@ -702,6 +706,21 @@ export function PostProvider({
           });
 
         if (uploadError) throw uploadError;
+        uploadedStoragePaths.push(storagePath);
+
+        let thumbnailId: string | undefined;
+        if (isVideo && videoThumbnail) {
+          const thumbnailPath = `${user.id}/${Date.now()}-${index}-cover.jpg`;
+          const { error: thumbnailUploadError } = await supabase.storage
+            .from("post-media")
+            .upload(thumbnailPath, videoThumbnail, {
+              upsert: false,
+              contentType: "image/jpeg",
+            });
+          if (thumbnailUploadError) throw thumbnailUploadError;
+          thumbnailId = `post-media/${thumbnailPath}`;
+          uploadedStoragePaths.push(thumbnailPath);
+        }
 
         uploadedMedia.push({
           storagePath,
@@ -709,6 +728,7 @@ export function PostProvider({
             mediaId: `post-media/${storagePath}`,
             mediaType: isVideo ? "video" : "image",
             mediaName: file.name,
+            ...(thumbnailId ? { thumbnailId } : {}),
           },
         });
       }
@@ -752,14 +772,10 @@ export function PostProvider({
         return updatedPosts;
       });
     } catch (error) {
-      if (uploadedMedia.length > 0) {
-        const pathsToRemove = uploadedMedia.map(
-          (item) => item.storagePath
-        );
-
+      if (uploadedStoragePaths.length > 0) {
         const { error: cleanupError } = await supabase.storage
           .from("post-media")
-          .remove(pathsToRemove);
+          .remove(uploadedStoragePaths);
 
         if (cleanupError) {
           console.error(
@@ -856,6 +872,8 @@ export function PostProvider({
     for (const item of mediaItems) {
       const path = getStoragePath(item.mediaId);
       if (path) mediaPaths.add(path);
+      const thumbnailPath = getStoragePath(item.thumbnailId);
+      if (thumbnailPath) mediaPaths.add(thumbnailPath);
     }
 
     if (mediaPaths.size > 0) {

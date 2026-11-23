@@ -100,6 +100,7 @@ export default function MediaDisplay({
   onShare,
 }: MediaDisplayProps) {
   const [mediaUrl, setMediaUrl] = useState("");
+  const [posterUrl, setPosterUrl] = useState("");
   const [failed, setFailed] = useState(false);
   const [localViewerOpen, setLocalViewerOpen] = useState(false);
   const isFullscreen = isViewerOpen ?? localViewerOpen;
@@ -113,6 +114,8 @@ export default function MediaDisplay({
   const viewerSwipeHandledRef = useRef(false);
   const ignorePreviewClickRef = useRef(false);
   const navigationTriggeredRef = useRef(false);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const viewerVideoRef = useRef<HTMLVideoElement>(null);
   const allMedia: PostMedia[] = mediaItems?.length
     ? mediaItems
     : mediaId && mediaType
@@ -123,17 +126,29 @@ export default function MediaDisplay({
   const activeMediaId = activeMedia?.mediaId;
   const activeMediaType = activeMedia?.mediaType;
   const activeMediaName = activeMedia?.mediaName;
+  const activeThumbnailId = activeMedia?.thumbnailId;
   const hasMedia = Boolean(activeMediaId && activeMediaType);
   const hasCarousel = allMedia.length > 1;
+
+  const stopActiveVideos = useCallback(() => {
+    previewVideoRef.current?.pause();
+    viewerVideoRef.current?.pause();
+  }, []);
+
+  const selectMedia = useCallback((index: number) => {
+    stopActiveVideos();
+    setMediaIndex(index);
+  }, [stopActiveVideos]);
 
   const moveMedia = useCallback((direction: "next" | "previous") => {
     if (direction === "next" && visibleMediaIndex >= allMedia.length - 1) return;
     if (direction === "previous" && visibleMediaIndex <= 0) return;
+    stopActiveVideos();
     setMediaSwipeDirection(direction === "next" ? "left" : "right");
     setMediaIndex(direction === "next" ? visibleMediaIndex + 1 : visibleMediaIndex - 1);
     if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
     mediaSwipeTimerRef.current = window.setTimeout(() => setMediaSwipeDirection(null), 260);
-  }, [allMedia.length, visibleMediaIndex]);
+  }, [allMedia.length, stopActiveVideos, visibleMediaIndex]);
 
   useEffect(() => () => {
     if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
@@ -203,28 +218,31 @@ export default function MediaDisplay({
   };
 
   const openViewer = useCallback(() => {
+    stopActiveVideos();
     setShowMoreMenu(false);
     if (onOpenViewer) onOpenViewer();
     else setLocalViewerOpen(true);
-  }, [onOpenViewer]);
+  }, [onOpenViewer, stopActiveVideos]);
 
   const closeViewer = useCallback(() => {
+    stopActiveVideos();
     setShowMoreMenu(false);
     if (onCloseViewer) onCloseViewer();
     else setLocalViewerOpen(false);
-  }, [onCloseViewer]);
+  }, [onCloseViewer, stopActiveVideos]);
 
   const navigateToPost = useCallback((direction: "next" | "previous") => {
     if (!onNavigate) return;
     if (isViewerTransitioning) return;
     if (navigationTriggeredRef.current) return;
+    stopActiveVideos();
     navigationTriggeredRef.current = true;
     if (isViewerOpen === undefined) closeViewer();
     onNavigate(direction);
     window.setTimeout(() => {
       navigationTriggeredRef.current = false;
     }, 350);
-  }, [closeViewer, isViewerOpen, isViewerTransitioning, onNavigate]);
+  }, [closeViewer, isViewerOpen, isViewerTransitioning, onNavigate, stopActiveVideos]);
 
   const moveByGesture = useCallback((direction: "next" | "previous") => {
     const canMoveMedia = direction === "next"
@@ -319,6 +337,17 @@ export default function MediaDisplay({
   }, [activeMediaId, activeMediaType]);
 
   useEffect(() => {
+    if (!activeThumbnailId?.startsWith("post-media/")) {
+      const clearPoster = window.setTimeout(() => setPosterUrl(""), 0);
+      return () => window.clearTimeout(clearPoster);
+    }
+    const supabase = createClient();
+    const { data } = supabase.storage.from("post-media").getPublicUrl(activeThumbnailId.slice("post-media/".length));
+    const updatePoster = window.setTimeout(() => setPosterUrl(data.publicUrl || ""), 0);
+    return () => window.clearTimeout(updatePoster);
+  }, [activeThumbnailId]);
+
+  useEffect(() => {
     if (!isFullscreen) return;
     navigationTriggeredRef.current = false;
     const unlockPageScroll = lockPageScroll();
@@ -376,8 +405,10 @@ export default function MediaDisplay({
       <div className={`relative mb-2 w-full touch-pan-y overflow-hidden bg-black sm:rounded-xl ${hasCarousel ? "aspect-[4/5] max-h-[85vh]" : ""}`} onTouchStart={(event) => { const touch = event.touches[0]; previewTouchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null; previewSwipeHandledRef.current = false; }} onTouchMove={handlePreviewTouchMove} onTouchEnd={handlePreviewTouchEnd}>
         {activeMediaType === "video" ? (
           <video
+            ref={previewVideoRef}
             key={activeMediaId}
             src={mediaUrl}
+            poster={posterUrl || undefined}
             controls
             playsInline
             preload="metadata"
@@ -403,7 +434,7 @@ export default function MediaDisplay({
         )}
       </div>
       {hasCarousel && <div className="flex items-center justify-center gap-1.5 pb-2" role="tablist" aria-label="Post media">
-        {allMedia.map((item, index) => <button key={`${item.mediaId}-${index}`} type="button" role="tab" aria-label={`Show media ${index + 1} of ${allMedia.length}`} aria-selected={visibleMediaIndex === index} onClick={() => setMediaIndex(index)} className={`h-1.5 rounded-full transition-all ${visibleMediaIndex === index ? "w-3 bg-[#7d80e8]" : "w-1.5 bg-gray-300"}`} />)}
+        {allMedia.map((item, index) => <button key={`${item.mediaId}-${index}`} type="button" role="tab" aria-label={`Show media ${index + 1} of ${allMedia.length}`} aria-selected={visibleMediaIndex === index} onClick={() => selectMedia(index)} className={`h-1.5 rounded-full transition-all ${visibleMediaIndex === index ? "w-3 bg-[#7d80e8]" : "w-1.5 bg-gray-300"}`} />)}
       </div>}
       </>}
 
@@ -469,8 +500,10 @@ export default function MediaDisplay({
             <div className="absolute inset-0 flex items-center justify-center bg-[#161616] text-sm text-white/70">Loading post…</div>
           ) : activeMediaType === "video" ? (
             <video
+              ref={viewerVideoRef}
               key={activeMediaId}
               src={mediaUrl}
+              poster={posterUrl || undefined}
               controls
               autoPlay
               playsInline

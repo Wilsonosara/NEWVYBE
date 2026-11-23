@@ -3,6 +3,7 @@ export type PostMedia = {
   mediaId: string;
   mediaType: "image" | "video";
   mediaName: string;
+  thumbnailId?: string;
 };
 
 export type Post = {
