@@ -11,6 +11,16 @@ import type { PostMedia } from "../lib/posts";
 
 let activeViewerScrollLocks = 0;
 let bodyOverflowBeforeViewer = "";
+let activeFeedVideo: HTMLVideoElement | null = null;
+
+function claimFeedVideo(video: HTMLVideoElement) {
+  if (activeFeedVideo && activeFeedVideo !== video) activeFeedVideo.pause();
+  activeFeedVideo = video;
+}
+
+function releaseFeedVideo(video: HTMLVideoElement) {
+  if (activeFeedVideo === video) activeFeedVideo = null;
+}
 
 function lockPageScroll() {
   if (activeViewerScrollLocks === 0) {
@@ -133,6 +143,8 @@ export default function MediaDisplay({
   const stopActiveVideos = useCallback(() => {
     previewVideoRef.current?.pause();
     viewerVideoRef.current?.pause();
+    if (previewVideoRef.current) releaseFeedVideo(previewVideoRef.current);
+    if (viewerVideoRef.current) releaseFeedVideo(viewerVideoRef.current);
   }, []);
 
   const selectMedia = useCallback((index: number) => {
@@ -153,6 +165,28 @@ export default function MediaDisplay({
   useEffect(() => () => {
     if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    const video = previewVideoRef.current;
+    if (!video || isFullscreen || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry || entry.intersectionRatio < 0.25) video.pause();
+    }, { threshold: [0, 0.25, 0.5, 1] });
+    observer.observe(video);
+    return () => {
+      observer.disconnect();
+      video.pause();
+      releaseFeedVideo(video);
+    };
+  }, [activeMediaId, isFullscreen, mediaUrl]);
+
+  useEffect(() => {
+    const pauseWhenHidden = () => {
+      if (document.visibilityState === "hidden") stopActiveVideos();
+    };
+    document.addEventListener("visibilitychange", pauseWhenHidden);
+    return () => document.removeEventListener("visibilitychange", pauseWhenHidden);
+  }, [stopActiveVideos]);
 
   const mediaSwipeClass = mediaSwipeDirection === "left"
     ? "vybe-carousel-slide-left"
@@ -414,6 +448,8 @@ export default function MediaDisplay({
             preload="metadata"
             aria-label={activeMediaName || "Post video"}
             onClick={openViewerFromPreview}
+            onPlay={(event) => claimFeedVideo(event.currentTarget)}
+            onPause={(event) => releaseFeedVideo(event.currentTarget)}
             className={`block ${hasCarousel ? "h-full w-full object-contain" : "max-h-[85vh] w-full object-contain"} cursor-pointer ${mediaSwipeClass}`}
           />
         ) : (
@@ -509,6 +545,8 @@ export default function MediaDisplay({
               playsInline
               preload="metadata"
               aria-label={activeMediaName || "Full-screen post video"}
+              onPlay={(event) => claimFeedVideo(event.currentTarget)}
+              onPause={(event) => releaseFeedVideo(event.currentTarget)}
               className={`${hasCarousel ? "absolute left-1/2 top-1/2 aspect-[4/5] w-[min(90vw,68vh)] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 object-contain" : "absolute inset-0 h-full w-full object-contain"} ${mediaSwipeClass}`}
               onClick={(event) => event.stopPropagation()}
             />
