@@ -22,7 +22,7 @@ function releaseFeedVideo(video: HTMLVideoElement) {
   if (activeFeedVideo === video) activeFeedVideo = null;
 }
 
-function lockPageScroll() {
+export function lockPageScroll() {
   if (activeViewerScrollLocks === 0) {
     bodyOverflowBeforeViewer = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -30,7 +30,10 @@ function lockPageScroll() {
 
   activeViewerScrollLocks += 1;
 
+  let released = false;
   return () => {
+    if (released) return;
+    released = true;
     activeViewerScrollLocks = Math.max(0, activeViewerScrollLocks - 1);
 
     if (activeViewerScrollLocks === 0) {
@@ -493,15 +496,18 @@ export default function MediaDisplay({
             const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
             if ((horizontal && !hasCarousel && !onNavigate) || (!horizontal && !onNavigate)) return;
             const gesture = wheelGestureRef.current;
-            gesture.x += event.deltaX;
-            gesture.y += event.deltaY;
+            const distance = horizontal ? event.deltaX : event.deltaY;
+            if (Math.abs(distance) < 1) return;
+            gesture.x = event.deltaX;
+            gesture.y = event.deltaY;
             if (gesture.resetTimer !== null) window.clearTimeout(gesture.resetTimer);
             gesture.resetTimer = window.setTimeout(() => {
               Object.assign(gesture, { x: 0, y: 0, triggered: false, resetTimer: null });
-            }, 360);
-            if (gesture.triggered) return;
-            const distance = horizontal ? gesture.x : gesture.y;
-            if (Math.abs(distance) < 110) return;
+            }, 100);
+            if (gesture.triggered) {
+              event.preventDefault();
+              return;
+            }
             event.preventDefault();
             gesture.triggered = true;
             const direction = distance > 0 ? "next" : "previous";

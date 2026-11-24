@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "../../../utils/supabase/client";
 import { usePosts, type PostComment } from "./PostContext";
 import Stories from "./Stories";
-import MediaDisplay from "./MediaDisplay";
+import MediaDisplay, { lockPageScroll } from "./MediaDisplay";
 import ContactAvatarIcon from "./ContactAvatarIcon";
 import { useLanguage, type Language } from "./LanguageProvider";
 
@@ -1112,14 +1112,13 @@ export default function AppHome() {
 
   useEffect(() => {
     if (openComments === null) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockPageScroll = lockPageScroll();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpenComments(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockPageScroll();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [openComments]);
