@@ -9,6 +9,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type FormEvent,
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -105,8 +106,16 @@ function Avatar({
 }
 
 function ProfilePostTile({ post }: { post: Post }) {
+  const { likePost, unlikePost, addComment, postComments } = usePosts();
   const [mediaUrl, setMediaUrl] = useState("");
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(post.likes);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
+  const [interactionError, setInteractionError] = useState("");
   const [mediaIndex, setMediaIndex] = useState(0);
   const touchStartXRef = useRef<number | null>(null);
   const fallbackMedia: PostMedia | undefined = post.mediaId && post.mediaType
@@ -114,23 +123,70 @@ function ProfilePostTile({ post }: { post: Post }) {
     : undefined;
   const mediaItems = post.mediaItems?.length ? post.mediaItems : fallbackMedia ? [fallbackMedia] : [];
   const media: PostMedia | undefined = mediaItems[Math.min(mediaIndex, Math.max(0, mediaItems.length - 1))];
+  const currentMediaId = media?.mediaId;
+  const comments = postComments[post.id] ?? [];
 
   useEffect(() => {
-    if (!media) return;
+    let active = true;
+    const loadLikeState = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase.from("post_likes").select("post_id").eq("post_id", post.id).eq("user_id", user.id).maybeSingle();
+      if (!error && active) setLiked(Boolean(data));
+    };
+    void loadLikeState();
+    return () => { active = false; };
+  }, [post.id]);
+
+  const toggleLike = async () => {
+    if (likeBusy) return;
+    const next = !liked;
+    setLikeBusy(true);
+    setInteractionError("");
+    setLiked(next);
+    setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
+    try {
+      if (next) await likePost(post.id);
+      else await unlikePost(post.id);
+    } catch (error) {
+      setLiked(!next);
+      setLikeCount((count) => Math.max(0, count + (next ? -1 : 1)));
+      setInteractionError(error instanceof Error ? error.message : "Could not update your like.");
+    } finally { setLikeBusy(false); }
+  };
+
+  const submitComment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!commentText.trim() || commentBusy) return;
+    setCommentBusy(true);
+    setInteractionError("");
+    try {
+      const { data: { user } } = await createClient().auth.getUser();
+      if (!user) throw new Error("Please log in to comment.");
+      await addComment(post.id, commentText.trim());
+      setCommentText("");
+    } catch (error) {
+      setInteractionError(error instanceof Error ? error.message : "Could not post your comment.");
+    } finally { setCommentBusy(false); }
+  };
+
+  useEffect(() => {
+    if (!media || !currentMediaId) return;
     const supabase = createClient();
     let objectUrl = "";
     let active = true;
     const loadMedia = async () => {
-      if (media.mediaId.startsWith("post-media/")) {
+      if (currentMediaId.startsWith("post-media/")) {
         const { data } = supabase.storage
           .from("post-media")
-          .getPublicUrl(media.mediaId.slice("post-media/".length));
+          .getPublicUrl(currentMediaId.slice("post-media/".length));
         if (active) setMediaUrl(data.publicUrl);
         return;
       }
 
       try {
-        const file = await getMedia(media.mediaId);
+        const file = await getMedia(currentMediaId);
         if (!active || !file) return;
         objectUrl = URL.createObjectURL(file);
         setMediaUrl(objectUrl);
@@ -143,7 +199,7 @@ function ProfilePostTile({ post }: { post: Post }) {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [media?.mediaId]);
+  }, [currentMediaId, media]);
 
   const normalizedUsername = post.username.trim().replace(/^@/, "");
   const authorProfileUrl = normalizedUsername
@@ -166,12 +222,7 @@ function ProfilePostTile({ post }: { post: Post }) {
           <img src={mediaUrl} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
         ) : (
           <span className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm font-medium leading-5 text-[#43396a]">
-            {post.content || "VYBE post"}
-          </span>
-        )}
-        {mediaUrl && post.content && (
-          <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-8 text-xs font-medium text-white">
-            {post.content}
+            {post.world || "VYBE post"}
           </span>
         )}
       </button>
@@ -217,8 +268,25 @@ function ProfilePostTile({ post }: { post: Post }) {
                 <span className="block truncate text-xs text-white/70">{post.username}</span>
                 {post.content && <p className="mt-1 line-clamp-2 text-sm">{post.content}</p>}
               </div>
-              <Link href={`/app?post=${post.id}`} onClick={() => setViewerOpen(false)} className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-semibold text-gray-900">Open post</Link>
+              <Link href={`/app?post=${post.id}`} onClick={() => setViewerOpen(false)} className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-semibold text-gray-900">Open on Home</Link>
             </div>
+            <div className="mt-3 flex w-full items-center gap-5 text-white">
+              <button type="button" onClick={() => void toggleLike()} disabled={likeBusy} aria-pressed={liked} className={`flex items-center gap-2 rounded-full bg-black/40 px-4 py-2 text-sm font-semibold ${liked ? "text-rose-300" : "text-white"}`}>
+                <span aria-hidden="true">{liked ? "♥" : "♡"}</span> {likeCount} likes
+              </button>
+              <button type="button" onClick={() => setCommentsOpen((open) => !open)} className="rounded-full bg-black/40 px-4 py-2 text-sm font-semibold text-white">
+                ♧ {comments.length || post.comments} comments
+              </button>
+            </div>
+            {commentsOpen && <section aria-label="Post comments" className="mt-2 max-h-44 w-full overflow-y-auto rounded-2xl bg-white p-3 text-gray-900">
+              <div className="space-y-2">{comments.map((comment) => <p key={comment.id} className="text-sm"><strong>{comment.author}</strong>{" "}{comment.content}</p>)}{!comments.length && <p className="text-sm text-gray-500">Be the first to comment.</p>}</div>
+              <form onSubmit={submitComment} className="mt-3 flex gap-2 border-t border-gray-100 pt-3">
+                <input value={commentText} onChange={(event) => setCommentText(event.target.value)} aria-label="Write a comment" placeholder="Write a comment…" className="min-w-0 flex-1 rounded-full border border-gray-200 px-3 py-2 text-sm outline-none focus:border-violet-400" />
+                <button type="submit" disabled={!commentText.trim() || commentBusy} className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{commentBusy ? "Posting…" : "Post"}</button>
+              </form>
+              {interactionError && <p role="alert" className="mt-2 text-xs text-rose-600">{interactionError}</p>}
+            </section>}
+            {!commentsOpen && interactionError && <p role="alert" className="mt-2 text-xs text-rose-200">{interactionError}</p>}
           </div>
         </div>
       )}

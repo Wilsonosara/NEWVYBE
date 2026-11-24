@@ -851,7 +851,7 @@ export default function ExplorePage() {
         {searchPostsLoading && <p className="px-2 py-4 text-sm text-gray-500">Searching posts and videos…</p>}
 
         {!blockLoadError && (exploreTiles.length ? <div className="grid grid-cols-3 gap-1.5 sm:gap-3" aria-label="Discover posts and videos">
-          {exploreTiles.map(({ post, media }) => <ExploreMediaTile key={post.id} post={post} media={media} />)}
+          {exploreTiles.map(({ post, media }) => <ExploreMediaTile key={post.id} post={post} media={media} allPosts={exploreTiles} />)}
         </div> : !searchPostsLoading && <div className="py-16 text-center text-sm text-gray-500">{search.trim() ? "No posts or videos matched your search." : posts.length ? "No posts in this category yet." : "Loading posts…"}</div>)}
       </div>
     </main>

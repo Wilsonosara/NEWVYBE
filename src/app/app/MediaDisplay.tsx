@@ -41,6 +41,7 @@ function lockPageScroll() {
 }
 
 type MediaDisplayProps = {
+  wheelNavigationGuard?: { current: WheelNavigationGesture };
   mediaId?: string;
   mediaType?: "image" | "video";
   mediaName?: string;
@@ -75,7 +76,10 @@ type MediaDisplayProps = {
   onShare?: () => void;
 };
 
+type WheelNavigationGesture = { x: number; y: number; triggered: boolean; resetTimer: number | null };
+
 export default function MediaDisplay({
+  wheelNavigationGuard,
   mediaId,
   mediaType,
   mediaName,
@@ -124,6 +128,8 @@ export default function MediaDisplay({
   const viewerSwipeHandledRef = useRef(false);
   const ignorePreviewClickRef = useRef(false);
   const navigationTriggeredRef = useRef(false);
+  const localWheelGestureRef = useRef<WheelNavigationGesture>({ x: 0, y: 0, triggered: false, resetTimer: null });
+  const wheelGestureRef = wheelNavigationGuard ?? localWheelGestureRef;
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const viewerVideoRef = useRef<HTMLVideoElement>(null);
   const allMedia: PostMedia[] = mediaItems?.length
@@ -164,7 +170,8 @@ export default function MediaDisplay({
 
   useEffect(() => () => {
     if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
-  }, []);
+    if (!wheelNavigationGuard && localWheelGestureRef.current.resetTimer !== null) window.clearTimeout(localWheelGestureRef.current.resetTimer);
+  }, [wheelNavigationGuard]);
 
   useEffect(() => {
     const video = previewVideoRef.current;
@@ -278,7 +285,7 @@ export default function MediaDisplay({
     }, 350);
   }, [closeViewer, isViewerOpen, isViewerTransitioning, onNavigate, stopActiveVideos]);
 
-  const moveByGesture = useCallback((direction: "next" | "previous") => {
+  const moveByGesture = (direction: "next" | "previous") => {
     const canMoveMedia = direction === "next"
       ? visibleMediaIndex < allMedia.length - 1
       : visibleMediaIndex > 0;
@@ -287,7 +294,7 @@ export default function MediaDisplay({
     } else if (isFullscreen && onNavigate) {
       navigateToPost(direction);
     }
-  }, [allMedia.length, isFullscreen, moveMedia, navigateToPost, onNavigate, visibleMediaIndex]);
+  };
 
   const stopViewerClick = (event: { stopPropagation: () => void }) =>
     event.stopPropagation();
@@ -483,19 +490,23 @@ export default function MediaDisplay({
           onClick={closeViewer}
           onWheel={(event) => {
             if (isViewerTransitioning) return;
-            if (hasCarousel && Math.abs(event.deltaX) > Math.abs(event.deltaY) && Math.abs(event.deltaX) >= 30) {
-              event.preventDefault();
-              moveByGesture(event.deltaX > 0 ? "next" : "previous");
-              return;
-            }
-            if (Math.abs(event.deltaX) > Math.abs(event.deltaY) && Math.abs(event.deltaX) >= 30 && isFullscreen && onNavigate) {
-              event.preventDefault();
-              moveByGesture(event.deltaX > 0 ? "next" : "previous");
-              return;
-            }
-            if (Math.abs(event.deltaY) < 30 || !onNavigate) return;
+            const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+            if ((horizontal && !hasCarousel && !onNavigate) || (!horizontal && !onNavigate)) return;
+            const gesture = wheelGestureRef.current;
+            gesture.x += event.deltaX;
+            gesture.y += event.deltaY;
+            if (gesture.resetTimer !== null) window.clearTimeout(gesture.resetTimer);
+            gesture.resetTimer = window.setTimeout(() => {
+              Object.assign(gesture, { x: 0, y: 0, triggered: false, resetTimer: null });
+            }, 360);
+            if (gesture.triggered) return;
+            const distance = horizontal ? gesture.x : gesture.y;
+            if (Math.abs(distance) < 110) return;
             event.preventDefault();
-            navigateToPost(event.deltaY > 0 ? "next" : "previous");
+            gesture.triggered = true;
+            const direction = distance > 0 ? "next" : "previous";
+            if (horizontal && hasCarousel) moveByGesture(direction);
+            else navigateToPost(direction);
           }}
           onTouchStart={(event) => {
             if (isViewerTransitioning) return;
