@@ -1,13 +1,17 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+/* eslint-disable @next/next/no-img-element */
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage } from "../LanguageProvider";
 import type { Language } from "../LanguageProvider";
 import { usePosts } from "../PostContext";
 import ContactAvatarIcon from "../ContactAvatarIcon";
+import ExploreMediaTile from "./ExploreMediaTile";
+import type { Post, PostMedia } from "../../lib/posts";
 
 type Person = {
   id: string;
@@ -22,18 +26,30 @@ type BlockRelationship = {
   blocked_id: string;
 };
 
-type Trend = {
-  tag: string;
-  keywords: string[];
+type SearchPostRow = {
+  id: number;
+  user_id: string;
+  author: string;
+  username: string;
+  content: string;
+  world: string;
+  likes: number;
+  comments: number;
+  media_path: string | null;
+  media_type: "image" | "video" | null;
+  media_name: string | null;
+  media_items: PostMedia[] | null;
+  created_at: string;
 };
 
 const translations: Record<Language, Record<string, string>> = {
   en: {
     discover: "Discover your next interest",
     explore: "Explore",
+    allContent: "All",
     intro: "Find your people, discover new worlds, and join conversations happening across VYBE.",
-    searchPlaceholder: "Search people, topics or communities...",
-    searchLabel: "Search people, topics or communities",
+    searchPlaceholder: "Search any user, post or video...",
+    searchLabel: "Search any user, post or video",
     clear: "Clear",
     worlds: "Explore worlds",
     worldsDescription: "Find the space that interests you.",
@@ -79,9 +95,10 @@ const translations: Record<Language, Record<string, string>> = {
   fr: {
     discover: "Découvrez votre prochain centre d’intérêt",
     explore: "Explorer",
+    allContent: "Tout",
     intro: "Trouvez votre communauté, découvrez de nouveaux univers et rejoignez les conversations sur VYBE.",
-    searchPlaceholder: "Rechercher des personnes, sujets ou communautés...",
-    searchLabel: "Rechercher des personnes, sujets ou communautés",
+    searchPlaceholder: "Rechercher une personne, une publication ou une vidéo...",
+    searchLabel: "Rechercher une personne, une publication ou une vidéo",
     clear: "Effacer",
     worlds: "Explorer les univers",
     worldsDescription: "Trouvez l’espace qui vous intéresse.",
@@ -127,9 +144,10 @@ const translations: Record<Language, Record<string, string>> = {
   es: {
     discover: "Descubre tu próximo interés",
     explore: "Explorar",
+    allContent: "Todo",
     intro: "Encuentra a tu gente, descubre nuevos mundos y únete a las conversaciones de VYBE.",
-    searchPlaceholder: "Buscar personas, temas o comunidades...",
-    searchLabel: "Buscar personas, temas o comunidades",
+    searchPlaceholder: "Busca usuarios, publicaciones o videos...",
+    searchLabel: "Busca usuarios, publicaciones o videos",
     clear: "Borrar",
     worlds: "Explorar mundos",
     worldsDescription: "Encuentra el espacio que te interesa.",
@@ -175,9 +193,10 @@ const translations: Record<Language, Record<string, string>> = {
   pt: {
     discover: "Descubra seu próximo interesse",
     explore: "Explorar",
+    allContent: "Tudo",
     intro: "Encontre sua comunidade, descubra novos mundos e participe das conversas no VYBE.",
-    searchPlaceholder: "Buscar pessoas, assuntos ou comunidades...",
-    searchLabel: "Buscar pessoas, assuntos ou comunidades",
+    searchPlaceholder: "Pesquise pessoas, publicações ou vídeos...",
+    searchLabel: "Pesquise pessoas, publicações ou vídeos",
     clear: "Limpar",
     worlds: "Explorar mundos",
     worldsDescription: "Encontre o espaço que interessa a você.",
@@ -223,9 +242,10 @@ const translations: Record<Language, Record<string, string>> = {
   ar: {
     discover: "اكتشف اهتمامك القادم",
     explore: "استكشف",
+    allContent: "الكل",
     intro: "اعثر على مجتمعك، واكتشف عوالم جديدة، وانضم إلى المحادثات على VYBE.",
-    searchPlaceholder: "ابحث عن أشخاص أو مواضيع أو مجتمعات...",
-    searchLabel: "البحث عن أشخاص أو مواضيع أو مجتمعات",
+    searchPlaceholder: "ابحث عن مستخدم أو منشور أو فيديو...",
+    searchLabel: "البحث عن مستخدم أو منشور أو فيديو",
     clear: "مسح",
     worlds: "استكشف العوالم",
     worldsDescription: "اعثر على المساحة التي تهمك.",
@@ -271,9 +291,10 @@ const translations: Record<Language, Record<string, string>> = {
   ha: {
     discover: "Gano abin da zai ja hankalinka na gaba",
     explore: "Bincika",
+    allContent: "Duka",
     intro: "Nemo mutanen da suka dace da kai, gano sababbin duniyoyi, kuma shiga tattaunawar VYBE.",
-    searchPlaceholder: "Nemo mutane, batutuwa ko al'ummomi...",
-    searchLabel: "Nemo mutane, batutuwa ko al'ummomi",
+    searchPlaceholder: "Nemo mai amfani, rubutu ko bidiyo...",
+    searchLabel: "Nemo mai amfani, rubutu ko bidiyo",
     clear: "Share",
     worlds: "Bincika duniyoyi",
     worldsDescription: "Nemo wurin da ya fi jan hankalinka.",
@@ -319,9 +340,10 @@ const translations: Record<Language, Record<string, string>> = {
   yo: {
     discover: "Ṣàwárí ohun tuntun tó máa wù ọ́",
     explore: "Ṣàwárí",
+    allContent: "Gbogbo",
     intro: "Wá àwọn ènìyàn rẹ, ṣàwárí àwọn ayé tuntun, kí o sì darapọ̀ mọ́ ìjíròrò lórí VYBE.",
-    searchPlaceholder: "Wá ènìyàn, àkòrí tàbí àwùjọ...",
-    searchLabel: "Wá ènìyàn, àkòrí tàbí àwùjọ",
+    searchPlaceholder: "Wá aṣàmúlò, ìfìwéránṣẹ́ tàbí fídíò...",
+    searchLabel: "Wá aṣàmúlò, ìfìwéránṣẹ́ tàbí fídíò",
     clear: "Pa rẹ́",
     worlds: "Ṣàwárí àwọn ayé",
     worldsDescription: "Wá ibi tó bá ohun tó fẹ́ràn mu.",
@@ -367,9 +389,10 @@ const translations: Record<Language, Record<string, string>> = {
   ig: {
     discover: "Chọpụta ihe ọhụrụ ga-amasị gị",
     explore: "Chọpụta",
+    allContent: "Ha niile",
     intro: "Chọta ndị gị, chọpụta ụwa ọhụrụ, ma sonyere mkparịta ụka na VYBE.",
-    searchPlaceholder: "Chọọ ndị mmadụ, isiokwu ma ọ bụ obodo...",
-    searchLabel: "Chọọ ndị mmadụ, isiokwu ma ọ bụ obodo",
+    searchPlaceholder: "Chọọ onye ọrụ, ozi ma ọ bụ vidiyo...",
+    searchLabel: "Chọọ onye ọrụ, ozi ma ọ bụ vidiyo",
     clear: "Hichapụ",
     worlds: "Chọpụta ụwa dị iche iche",
     worldsDescription: "Chọta ebe masịrị gị.",
@@ -414,37 +437,19 @@ const translations: Record<Language, Record<string, string>> = {
   },
 };
 
-const trends: Trend[] = [
-  {
-    tag: "#FootballTalk",
-    keywords: ["footballtalk", "football", "soccer"],
-  },
-  {
-    tag: "#TechCareers",
-    keywords: ["techcareers", "tech careers", "technology", "tech", "career"],
-  },
-  {
-    tag: "#MondayMotivation",
-    keywords: ["mondaymotivation", "monday motivation", "motivation"],
-  },
-  {
-    tag: "#GamingCommunity",
-    keywords: [
-      "gamingcommunity",
-      "gaming",
-      "gamer",
-      "videogame",
-      "video game",
-    ],
-  },
-];
-
-function postMatchesTrend(content: string, trend: Trend) {
-  const normalizedContent = content.toLocaleLowerCase();
-
-  return trend.keywords.some((keyword) =>
-    normalizedContent.includes(keyword.toLocaleLowerCase())
-  );
+function mapSearchPost(row: SearchPostRow): Post {
+  const mediaItems = Array.isArray(row.media_items) ? row.media_items : [];
+  const fallbackMedia: PostMedia[] = row.media_path
+    ? [{ mediaId: row.media_path, mediaType: row.media_type ?? "image", mediaName: row.media_name ?? "Post media" }]
+    : [];
+  const items = mediaItems.length ? mediaItems : fallbackMedia;
+  const first = items[0];
+  return {
+    id: Number(row.id), author: row.author, username: row.username, authorId: row.user_id,
+    content: row.content, world: row.world, likes: Number(row.likes ?? 0), comments: Number(row.comments ?? 0), time: row.created_at,
+    ...(first ? { mediaId: first.mediaId, mediaType: first.mediaType, mediaName: first.mediaName } : {}),
+    ...(items.length ? { mediaItems: items } : {}),
+  };
 }
 
 export default function ExplorePage() {
@@ -453,6 +458,10 @@ export default function ExplorePage() {
   const { posts } = usePosts();
 
   const [search, setSearch] = useState("");
+  const [searchPosts, setSearchPosts] = useState<Post[]>([]);
+  const [searchPostsLoading, setSearchPostsLoading] = useState(false);
+  const [searchPostsError, setSearchPostsError] = useState("");
+  const [shuffledFeedPosts, setShuffledFeedPosts] = useState<Post[]>([]);
   const [currentUserId, setCurrentUserId] = useState("");
   const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -465,10 +474,10 @@ export default function ExplorePage() {
   const [followBusyIds, setFollowBusyIds] = useState<string[]>([]);
   const [followError, setFollowError] = useState("");
 
-  const worlds = [
-    { name: c.social, href: "/app" },
+  const categories = [
     { name: c.sports, href: "/app/sports" },
     { name: c.career, href: "/app/career" },
+    { name: c.social, href: "/app" },
   ];
 
   useEffect(() => {
@@ -654,6 +663,71 @@ export default function ExplorePage() {
     c.member,
   ]);
 
+  useEffect(() => {
+    const term = search.trim().replace(/[,%()_*]/g, " ").replace(/\s+/g, " ").trim();
+    if (!term || authLoading || !blocksLoaded || blockLoadError) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearchPostsLoading(true);
+      setSearchPostsError("");
+      void (async () => {
+        try {
+          const supabase = createClient();
+          const filters = [
+            `content.ilike.%${term}%`,
+            `author.ilike.%${term}%`,
+            `username.ilike.%${term}%`,
+            `media_name.ilike.%${term}%`,
+          ];
+          if (/\bvideos?\b/i.test(term)) filters.push("media_type.eq.video");
+          const query = supabase.from("posts")
+            .select("id,user_id,author,username,content,world,likes,comments,media_path,media_type,media_name,media_items,created_at")
+            .or(filters.join(","))
+            .order("created_at", { ascending: false })
+            .limit(60);
+          const { data, error } = await query;
+          if (error) throw error;
+          if (!cancelled) {
+            const matches = ((data ?? []) as SearchPostRow[])
+              .filter((row) => row.user_id !== currentUserId && !blockedIds.includes(row.user_id))
+              .map(mapSearchPost);
+            setSearchPosts(matches);
+          }
+        } catch (error) {
+          console.error("Could not search Explore posts:", error);
+          if (!cancelled) {
+            setSearchPosts([]);
+            setSearchPostsError("Could not search posts. Please try again.");
+          }
+        } finally {
+          if (!cancelled) setSearchPostsLoading(false);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search, authLoading, blocksLoaded, blockLoadError, currentUserId, blockedIds]);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      const available = posts.filter((post) => post.authorId !== currentUserId && !blockedIds.includes(post.authorId ?? ""));
+      for (let index = available.length - 1; index > 0; index -= 1) {
+        const randomIndex = Math.floor(Math.random() * (index + 1));
+        [available[index], available[randomIndex]] = [available[randomIndex], available[index]];
+      }
+      if (active) setShuffledFeedPosts(available);
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [posts, currentUserId, blockedIds]);
+
   async function toggleFollow(person: Person) {
     if (!currentUserId) {
       setFollowError(c.loginToFollow);
@@ -714,299 +788,71 @@ export default function ExplorePage() {
     }
   }
 
-  const filteredTrends = trends.filter((trend) =>
-    trend.tag.toLowerCase().includes(search.trim().toLowerCase())
-  );
+  const postsForGrid = useMemo(() => {
+    if (blockLoadError) return [];
+    const source = search.trim() ? searchPosts : shuffledFeedPosts;
+    return source;
+  }, [search, searchPosts, shuffledFeedPosts, blockLoadError]);
 
-  function getTrendCount(trend: Trend) {
-    return posts.filter((post) =>
-      postMatchesTrend(post.content || "", trend)
-    ).length;
-  }
+  const exploreTiles = useMemo(() => postsForGrid.map((post) => {
+    const mediaItems = post.mediaItems?.length
+      ? post.mediaItems
+      : post.mediaId && post.mediaType
+        ? [{ mediaId: post.mediaId, mediaType: post.mediaType, mediaName: post.mediaName || "Post media" }]
+        : [];
+    const media = mediaItems.length ? mediaItems[(post.id + mediaItems.length) % mediaItems.length] : null;
+    return { post, media };
+  }), [postsForGrid]);
 
   return (
-    <main className="min-h-screen bg-white px-4 py-6 text-gray-900 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-7">
-          <p className="text-sm font-medium text-gray-500">{c.discover}</p>
-
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-            {c.explore}
-          </h1>
-
-          <p className="mt-2 max-w-xl text-sm leading-6 text-gray-500">
-            {c.intro}
-          </p>
-        </header>
-
-        <div className="mb-8">
-          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 transition focus-within:border-gray-400">
-            <svg
-              className="h-5 w-5 shrink-0 text-gray-400"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="10.8" cy="10.8" r="6.8" />
-              <path d="m16 16 5 5" />
-            </svg>
-
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={c.searchPlaceholder}
-              aria-label={c.searchLabel}
-              className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
-            />
-
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="shrink-0 text-xs font-medium text-gray-500 hover:text-gray-900"
-                aria-label={c.clear}
-              >
-                {c.clear}
-              </button>
-            )}
+    <main className="min-h-screen bg-white text-gray-900">
+      <div className="sticky top-0 z-20 border-b border-gray-100 bg-white/95 px-3 pb-2 pt-3 backdrop-blur sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-4 py-3 transition focus-within:border-[#7d80e8] focus-within:bg-white">
+            <svg className="h-5 w-5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></svg>
+            <input type="search" value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (!value.trim()) { setSearchPosts([]); setSearchPostsLoading(false); setSearchPostsError(""); } }} placeholder={c.searchPlaceholder} aria-label={c.searchLabel} className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400" />
+            {search && <button type="button" onClick={() => { setSearch(""); setSearchPosts([]); setSearchPostsLoading(false); setSearchPostsError(""); }} className="shrink-0 text-xs font-semibold text-gray-500 hover:text-gray-900" aria-label={c.clear}>{c.clear}</button>}
           </div>
-        </div>
-
-        {/* Horizontal world buttons */}
-        <section className="mb-10">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold tracking-tight">
-              {c.worlds}
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              {c.worldsDescription}
-            </p>
-          </div>
-
-          <nav
-            aria-label={c.worlds}
-            className="flex gap-3 overflow-x-auto pb-2"
-          >
-            {worlds.map((item) => (
-              <Link
-                key={item.name}
-                href={item.href}
-                className="inline-flex shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white px-6 py-3 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:bg-gray-50 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-              >
-                {item.name}
-                <span className="ml-2 text-gray-400" aria-hidden="true">
-                  →
-                </span>
-              </Link>
-            ))}
+          <nav aria-label="Explore worlds" className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {categories.map((category) => <Link key={category.name} href={category.href} className="shrink-0 rounded-full bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-200">{category.name}</Link>)}
           </nav>
-        </section>
+        </div>
+      </div>
 
-        {/* Trending topics */}
-        <section className="mb-10">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">
-                {c.trending}
-              </h2>
-              <p className="mt-1 text-sm text-gray-500">
-                {c.trendingDescription}
-              </p>
-            </div>
-
-            <span className="text-xs text-gray-400">{c.topics}</span>
+      <div className="mx-auto max-w-6xl px-1.5 pb-8 pt-3 sm:px-6 sm:pt-5">
+        {search.trim() && <section className="mb-4" aria-label="People search results">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <h2 className="text-sm font-semibold text-gray-800">People</h2>
+            <Link href="/app/connect" className="text-xs font-semibold text-gray-500">{c.seeMore} →</Link>
           </div>
-
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-            {filteredTrends.length > 0 ? (
-              filteredTrends.map((trend, index) => (
-                <Link
-                  key={trend.tag}
-                  href={`/app/trending?topic=${encodeURIComponent(trend.tag)}`}
-                  className={`flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 ${
-                    index !== 0 ? "border-t border-gray-100" : ""
-                  }`}
-                  aria-label={`View posts about ${trend.tag}`}
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                      {trend.tag}
-                    </p>
-                    <p className="mt-1 text-xs text-gray-400">
-                      {getTrendCount(trend).toLocaleString()} {c.posts}
-                    </p>
-                  </div>
-
-                  <span className="text-lg text-gray-400" aria-hidden="true">
-                    →
-                  </span>
+          {peopleLoading || authLoading || !blocksLoaded ? <p className="px-1 py-3 text-sm text-gray-500">{c.loadingPeople}</p> : peopleError ? <p className="px-1 py-3 text-sm text-gray-500">{peopleError}</p> : people.length ? <div className="flex gap-3 overflow-x-auto pb-2">
+            {people.slice(0, 12).map((person) => {
+              const profileHref = `/app/profile?username=${encodeURIComponent(person.username)}`;
+              const isFollowing = followingIds.includes(person.id);
+              const isOwnProfile = person.id === currentUserId;
+              const isBusy = followBusyIds.includes(person.id);
+              return <div key={person.id} className="flex w-32 shrink-0 flex-col items-center rounded-2xl border border-gray-100 bg-white p-3 text-center">
+                <Link href={profileHref} aria-label={c.openProfile.replace("{name}", person.name)} className="mb-2 flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-gray-500">
+                  {person.avatarUrl ? <img src={person.avatarUrl} alt="" className="h-full w-full object-cover" /> : <ContactAvatarIcon className="h-6 w-6" />}
                 </Link>
-              ))
-            ) : (
-              <p className="px-4 py-6 text-sm text-gray-500">
-                {c.noTrending}
-              </p>
-            )}
-          </div>
-        </section>
+                <Link href={profileHref} className="w-full truncate text-xs font-semibold text-gray-900">{person.name}</Link>
+                <span className="mt-0.5 w-full truncate text-[10px] text-gray-400">@{person.username}</span>
+                <button type="button" onClick={() => void toggleFollow(person)} disabled={!currentUserId || isOwnProfile || isBusy || blockedIds.includes(person.id)} className="mt-2 rounded-full border border-gray-200 px-3 py-1 text-[10px] font-semibold text-gray-700 disabled:opacity-50">
+                  {isOwnProfile ? c.you : isBusy ? c.pleaseWait : isFollowing ? c.following : c.follow}
+                </button>
+              </div>;
+            })}
+          </div> : <p className="px-1 py-3 text-sm text-gray-500">{c.noMatchingPeople}</p>}
+        </section>}
 
-        {/* People to discover */}
-        <section className="mb-10">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">
-                {search.trim() ? c.searchResults : c.peopleToDiscover}
-              </h2>
-              <p className="mt-1 text-sm text-gray-500">
-                {c.peopleDescription}
-              </p>
-            </div>
+        {followError && <p role="alert" className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{followError}<button type="button" onClick={() => setFollowError("")} className="ml-2 font-semibold underline">{c.dismiss}</button></p>}
+        {blockLoadError && <p role="alert" className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">{c.blockCheckError}</p>}
+        {searchPostsError && <p role="alert" className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{searchPostsError}</p>}
+        {searchPostsLoading && <p className="px-2 py-4 text-sm text-gray-500">Searching posts and videos…</p>}
 
-            <Link
-              href="/app/connect"
-              className="shrink-0 text-sm font-medium text-gray-700 hover:text-black"
-            >
-              {c.seeMore} →
-            </Link>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-            {peopleLoading || authLoading || !blocksLoaded ? (
-              <p className="px-4 py-8 text-center text-sm text-gray-500">
-                {c.loadingPeople}
-              </p>
-            ) : peopleError ? (
-              <p className="px-4 py-6 text-center text-sm text-gray-500">
-                {peopleError}
-              </p>
-            ) : people.length > 0 ? (
-              people.map((person, index) => {
-                const isFollowing = followingIds.includes(person.id);
-                const isOwnProfile = person.id === currentUserId;
-                const isBusy = followBusyIds.includes(person.id);
-
-                const profileHref = `/app/profile?username=${encodeURIComponent(
-                  person.username
-                )}`;
-
-                return (
-                  <div
-                    key={person.id}
-                    className={`flex items-center gap-3 px-4 py-4 ${
-                      index !== 0 ? "border-t border-gray-100" : ""
-                    }`}
-                  >
-                    <Link
-                      href={profileHref}
-                      aria-label={c.openProfile.replace(
-                        "{name}",
-                        person.name
-                      )}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200"
-                    >
-                      {person.avatarUrl ? <img src={person.avatarUrl} alt="" className="h-full w-full object-cover" /> : <ContactAvatarIcon className="h-6 w-6" />}
-                    </Link>
-
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        href={profileHref}
-                        className="block truncate text-sm font-semibold text-gray-900 hover:underline"
-                      >
-                        {person.name}
-                      </Link>
-
-                      <Link
-                        href={profileHref}
-                        className="block truncate text-xs text-gray-400 hover:text-gray-600"
-                      >
-                        @{person.username}
-                      </Link>
-
-                      <p className="mt-1 line-clamp-2 text-xs text-gray-500">
-                        {person.bio}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => void toggleFollow(person)}
-                      disabled={
-                        authLoading ||
-                        !currentUserId ||
-                        isOwnProfile ||
-                        isBusy ||
-                        blockedIds.includes(person.id)
-                      }
-                      className={`shrink-0 rounded-full border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                        isFollowing
-                          ? "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
-                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      {isOwnProfile
-                        ? c.you
-                        : isBusy
-                          ? c.pleaseWait
-                          : isFollowing
-                            ? c.following
-                            : c.follow}
-                    </button>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="px-4 py-8 text-center">
-                <p className="text-sm font-medium text-gray-700">
-                  {search.trim() ? c.noMatchingPeople : c.noPeople}
-                </p>
-
-                <p className="mt-2 text-xs leading-5 text-gray-400">
-                  {search.trim() ? c.tryAnother : c.membersAppear}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {followError && (
-            <p
-              role="alert"
-              className="mt-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600"
-            >
-              {followError}
-
-              <button
-                type="button"
-                onClick={() => setFollowError("")}
-                className="ml-2 font-semibold underline"
-              >
-                {c.dismiss}
-              </button>
-            </p>
-          )}
-        </section>
-
-        {/* Create post */}
-        <section className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-7 text-center">
-          <h2 className="text-lg font-semibold tracking-tight text-gray-900">
-            {c.conversationTitle}
-          </h2>
-
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-            {c.conversationDescription}
-          </p>
-
-          <Link
-            href="/app/create"
-            className="mt-5 inline-flex items-center justify-center rounded-full border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-800 transition hover:bg-gray-100"
-          >
-            {c.createPost}
-          </Link>
-        </section>
+        {!blockLoadError && (exploreTiles.length ? <div className="grid grid-cols-3 gap-1.5 sm:gap-3" aria-label="Discover posts and videos">
+          {exploreTiles.map(({ post, media }) => <ExploreMediaTile key={post.id} post={post} media={media} />)}
+        </div> : !searchPostsLoading && <div className="py-16 text-center text-sm text-gray-500">{search.trim() ? "No posts or videos matched your search." : posts.length ? "No posts in this category yet." : "Loading posts…"}</div>)}
       </div>
     </main>
   );

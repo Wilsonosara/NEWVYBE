@@ -446,7 +446,7 @@ export default function SportsPage() {
   const [activeTab, setActiveTab] = useState("For You");
 
   const [activeFootballSection, setActiveFootballSection] =
-    useState<FootballSection>("banters");
+    useState<FootballSection>("fixtures");
 
   const [matches, setMatches] = useState<Fixture[]>([]);
   const [fixturesLoading, setFixturesLoading] = useState(true);
