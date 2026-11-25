@@ -846,7 +846,7 @@ export default function ExplorePage() {
           </div>
           {peopleLoading || authLoading || !blocksLoaded ? <p className="px-1 py-3 text-sm text-gray-500">{c.loadingPeople}</p> : peopleError ? <p className="px-1 py-3 text-sm text-gray-500">{peopleError}</p> : people.length ? <div className="flex gap-3 overflow-x-auto pb-2">
             {people.slice(0, 12).map((person) => {
-              const profileHref = `/app/profile?username=${encodeURIComponent(person.username)}`;
+              const profileHref = `/app/profile?id=${encodeURIComponent(person.id)}`;
               const isFollowing = followingIds.includes(person.id);
               const isOwnProfile = person.id === currentUserId;
               const isBusy = followBusyIds.includes(person.id);

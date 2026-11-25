@@ -224,11 +224,9 @@ function ProfilePostTile({ post }: { post: Post }) {
   }, [currentMediaId, media]);
 
   const normalizedUsername = post.username.trim().replace(/^@/, "");
-  const authorProfileUrl = normalizedUsername
-    ? `/app/profile?username=${encodeURIComponent(normalizedUsername)}`
-    : post.authorId
-      ? `/app/profile?id=${encodeURIComponent(post.authorId)}`
-      : "/app/profile";
+  const authorProfileUrl = post.authorId
+    ? `/app/profile?id=${encodeURIComponent(post.authorId)}`
+    : normalizedUsername ? `/app/profile?username=${encodeURIComponent(normalizedUsername)}` : "/app/profile";
 
   return (
     <>

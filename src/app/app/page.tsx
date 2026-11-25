@@ -2218,9 +2218,9 @@ export default function AppHome() {
               post.author;
             const profileUsername =
               authorProfile?.username?.trim() || post.username;
-            const profileUrl = `/app/profile?username=${encodeURIComponent(
-              profileUsername.replace(/^@/, "")
-            )}`;
+            const profileUrl = ownerId
+              ? `/app/profile?id=${encodeURIComponent(ownerId)}`
+              : `/app/profile?username=${encodeURIComponent(profileUsername.replace(/^@/, ""))}`;
 
             const authorAvatar =
               authorProfile?.avatar_url || null;
@@ -2514,9 +2514,7 @@ export default function AppHome() {
                   <p className="mt-1 text-xs leading-5 text-gray-600">
                     <span className="font-semibold text-gray-800">Liked by </span>
                     {postLikers.slice(0, 3).map((liker, index) => {
-                      const profileUrl = liker.username
-                        ? `/app/profile?username=${encodeURIComponent(liker.username.replace(/^@/, ""))}`
-                        : null;
+                      const profileUrl = `/app/profile?id=${encodeURIComponent(liker.id)}`;
 
                       return (
                         <Fragment key={liker.id}>

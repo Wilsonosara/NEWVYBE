@@ -1656,9 +1656,7 @@ export default function CareerPage() {
                     profileText.includes(keyword)
                   );
 
-                  const profileUrl = profile.username
-                    ? `/app/profile?username=${encodeURIComponent(profile.username.replace(/^@/, ""))}`
-                    : null;
+                  const profileUrl = `/app/profile?id=${encodeURIComponent(profile.id)}`;
 
                   const isFollowing = followedProfileIds.includes(profile.id);
                   const isFollowPending = pendingFollowIds.includes(profile.id);
