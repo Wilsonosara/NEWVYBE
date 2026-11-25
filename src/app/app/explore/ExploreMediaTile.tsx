@@ -27,7 +27,7 @@ async function resolveMediaUrl(mediaId?: string) {
 type ExploreItem = { post: Post; media: PostMedia | null };
 
 function ExplorePostSlide({ item, onClose, onNavigate, onComments, wheelNavigationGuard }: { item: ExploreItem; onClose: () => void; onNavigate: (direction: "next" | "previous") => void; onComments: () => void; wheelNavigationGuard: { current: { x: number; y: number; triggered: boolean; resetTimer: number | null } } }) {
-  const { likePost, unlikePost, postComments } = usePosts();
+  const { likePost, unlikePost, postComments, recordVideoView } = usePosts();
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -126,7 +126,7 @@ function ExplorePostSlide({ item, onClose, onNavigate, onComments, wheelNavigati
     ? item.media ? [item.media, ...item.post.mediaItems.filter((candidate) => candidate.mediaId !== item.media?.mediaId)] : item.post.mediaItems
     : item.media ? [item.media] : [];
 
-  return <><MediaDisplay mediaId={viewerMedia[0]?.mediaId} mediaType={viewerMedia[0]?.mediaType} mediaName={viewerMedia[0]?.mediaName} mediaItems={viewerMedia} isViewerOpen wheelNavigationGuard={wheelNavigationGuard} onCloseViewer={onClose} onNavigate={onNavigate} authorName={item.post.author} authorUsername={item.post.username} authorProfileUrl={item.post.username ? `/app/profile?username=${encodeURIComponent(item.post.username.replace(/^@/, ""))}` : item.post.authorId ? `/app/profile?id=${encodeURIComponent(item.post.authorId)}` : "/app/profile"} postContent={item.post.content} likesCount={likeCount} dislikesCount={dislikeCount} commentsCount={postComments[item.post.id]?.length || item.post.comments} isLiked={liked} isDisliked={disliked} isSaved={saved} onLike={() => void toggleLike()} onDislike={() => void toggleDislike()} onComments={onComments} onSave={() => void toggleSave()} onShare={() => void sharePost()} />{actionError && <div role="alert" className="fixed bottom-5 left-1/2 z-[150] -translate-x-1/2 rounded-xl bg-black/80 px-4 py-2 text-sm text-white">{actionError}</div>}</>;
+  return <><MediaDisplay mediaId={viewerMedia[0]?.mediaId} mediaType={viewerMedia[0]?.mediaType} mediaName={viewerMedia[0]?.mediaName} mediaItems={viewerMedia} postId={item.post.id} viewsCount={item.post.views ?? 0} onVideoView={recordVideoView} isViewerOpen wheelNavigationGuard={wheelNavigationGuard} onCloseViewer={onClose} onNavigate={onNavigate} authorName={item.post.author} authorUsername={item.post.username} authorProfileUrl={item.post.username ? `/app/profile?username=${encodeURIComponent(item.post.username.replace(/^@/, ""))}` : item.post.authorId ? `/app/profile?id=${encodeURIComponent(item.post.authorId)}` : "/app/profile"} postContent={item.post.content} likesCount={likeCount} dislikesCount={dislikeCount} commentsCount={postComments[item.post.id]?.length || item.post.comments} isLiked={liked} isDisliked={disliked} isSaved={saved} onLike={() => void toggleLike()} onDislike={() => void toggleDislike()} onComments={onComments} onSave={() => void toggleSave()} onShare={() => void sharePost()} />{actionError && <div role="alert" className="fixed bottom-5 left-1/2 z-[150] -translate-x-1/2 rounded-xl bg-black/80 px-4 py-2 text-sm text-white">{actionError}</div>}</>;
 }
 
 function ExploreCommentsPanel({ item, onClose }: { item: ExploreItem; onClose: () => void }) {
@@ -325,7 +325,7 @@ export default function ExploreMediaTile({ post, media, allPosts = [] }: { post:
           <span>{post.world || "VYBE post"}</span>
         </div>
       )}
-      {media?.mediaType === "video" && <span className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/40 p-1.5 text-white backdrop-blur-sm" aria-label="Video"><svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true"><path d="m8 5 12 7-12 7z" /></svg></span>}
+      {media?.mediaType === "video" && <><span className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/40 p-1.5 text-white backdrop-blur-sm" aria-label="Video"><svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true"><path d="m8 5 12 7-12 7z" /></svg></span><span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">◉ {new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(post.views ?? 0)} views</span></>}
     </button>
     {isOpen && currentViewerItem && <ExplorePostSlide key={currentViewerItem.post.id} item={currentViewerItem} onClose={() => setIsOpen(false)} onNavigate={navigateViewer} onComments={() => { setCommentsPostId(currentViewerItem.post.id); setIsOpen(false); }} wheelNavigationGuard={wheelNavigationGuard} />}
     {commentsItem && <ExploreCommentsPanel item={commentsItem} onClose={() => setCommentsPostId(null)} />}

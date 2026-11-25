@@ -106,7 +106,7 @@ function Avatar({
 }
 
 function ProfilePostTile({ post }: { post: Post }) {
-  const { likePost, unlikePost, addComment, postComments } = usePosts();
+  const { likePost, unlikePost, addComment, postComments, recordVideoView } = usePosts();
   const [mediaUrl, setMediaUrl] = useState("");
   const [viewerOpen, setViewerOpen] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -118,6 +118,8 @@ function ProfilePostTile({ post }: { post: Post }) {
   const [interactionError, setInteractionError] = useState("");
   const [mediaIndex, setMediaIndex] = useState(0);
   const touchStartXRef = useRef<number | null>(null);
+  const videoViewTimerRef = useRef<number | null>(null);
+  const recordedViewPostRef = useRef<number | null>(null);
   const fallbackMedia: PostMedia | undefined = post.mediaId && post.mediaType
     ? { mediaId: post.mediaId, mediaType: post.mediaType, mediaName: post.mediaName || "Post media" }
     : undefined;
@@ -125,6 +127,26 @@ function ProfilePostTile({ post }: { post: Post }) {
   const media: PostMedia | undefined = mediaItems[Math.min(mediaIndex, Math.max(0, mediaItems.length - 1))];
   const currentMediaId = media?.mediaId;
   const comments = postComments[post.id] ?? [];
+
+  useEffect(() => () => {
+    if (videoViewTimerRef.current !== null) window.clearTimeout(videoViewTimerRef.current);
+  }, []);
+
+  const startVideoViewTimer = () => {
+    if (videoViewTimerRef.current !== null || recordedViewPostRef.current === post.id) return;
+    videoViewTimerRef.current = window.setTimeout(() => {
+      videoViewTimerRef.current = null;
+      recordedViewPostRef.current = post.id;
+      void recordVideoView(post.id).catch((error) => console.error("Could not record profile video view:", error));
+    }, 2000);
+  };
+
+  const cancelVideoViewTimer = () => {
+    if (videoViewTimerRef.current !== null) {
+      window.clearTimeout(videoViewTimerRef.current);
+      videoViewTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -225,6 +247,7 @@ function ProfilePostTile({ post }: { post: Post }) {
             {post.world || "VYBE post"}
           </span>
         )}
+        {media?.mediaType === "video" && <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white">◉ {new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(post.views ?? 0)} views</span>}
       </button>
 
       {viewerOpen && (
@@ -249,7 +272,7 @@ function ProfilePostTile({ post }: { post: Post }) {
               setMediaIndex((index) => Math.min(mediaItems.length - 1, Math.max(0, index + (distance > 0 ? 1 : -1))));
             }}>
               {mediaUrl && media?.mediaType === "video" ? (
-                <video src={mediaUrl} controls autoPlay playsInline className="max-h-full max-w-full object-contain" />
+                <video src={mediaUrl} controls autoPlay playsInline onPlay={startVideoViewTimer} onPause={cancelVideoViewTimer} className="max-h-full max-w-full object-contain" />
               ) : mediaUrl ? (
                 <img src={mediaUrl} alt={media?.mediaName || "Post image"} className="max-h-full max-w-full object-contain" />
               ) : (
@@ -277,6 +300,7 @@ function ProfilePostTile({ post }: { post: Post }) {
               <button type="button" onClick={() => setCommentsOpen((open) => !open)} className="rounded-full bg-black/40 px-4 py-2 text-sm font-semibold text-white">
                 ♧ {comments.length || post.comments} comments
               </button>
+              {media?.mediaType === "video" && <span className="rounded-full bg-black/40 px-4 py-2 text-sm font-semibold text-white">◉ {new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(post.views ?? 0)} views</span>}
             </div>
             {commentsOpen && <section aria-label="Post comments" className="mt-2 max-h-44 w-full overflow-y-auto rounded-2xl bg-white p-3 text-gray-900">
               <div className="space-y-2">{comments.map((comment) => <p key={comment.id} className="text-sm"><strong>{comment.author}</strong>{" "}{comment.content}</p>)}{!comments.length && <p className="text-sm text-gray-500">Be the first to comment.</p>}</div>

@@ -634,6 +634,7 @@ export default function AppHome() {
   const {
     posts,
     postComments: allPostComments,
+    recordVideoView,
     addComment,
     uploadFilesWithProgress,
     completeUploadProgress,
@@ -2339,6 +2340,9 @@ export default function AppHome() {
                   mediaType={post.mediaType}
                   mediaName={post.mediaName}
                   mediaItems={post.mediaItems}
+                  postId={post.id}
+                  viewsCount={post.views ?? 0}
+                  onVideoView={recordVideoView}
                   isViewerOpen={viewerPostId === post.id || outgoingViewerPostId === post.id}
                   isViewerTransitionIncoming={viewerPostId === post.id && viewerTransitioning}
                   isViewerTransitionOutgoing={outgoingViewerPostId === post.id}

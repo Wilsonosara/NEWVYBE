@@ -49,6 +49,9 @@ type MediaDisplayProps = {
   mediaType?: "image" | "video";
   mediaName?: string;
   mediaItems?: PostMedia[];
+  postId?: number;
+  viewsCount?: number;
+  onVideoView?: (postId: number) => Promise<number>;
   isViewerOpen?: boolean;
   isViewerTransitionIncoming?: boolean;
   isViewerTransitionOutgoing?: boolean;
@@ -87,6 +90,9 @@ export default function MediaDisplay({
   mediaType,
   mediaName,
   mediaItems,
+  postId,
+  viewsCount = 0,
+  onVideoView,
   isViewerOpen,
   isViewerTransitionIncoming = false,
   isViewerTransitionOutgoing = false,
@@ -123,6 +129,7 @@ export default function MediaDisplay({
   const isFullscreen = isViewerOpen ?? localViewerOpen;
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
+  const [viewCountOverride, setViewCountOverride] = useState<{ postId: number; count: number } | null>(null);
   const [mediaSwipeDirection, setMediaSwipeDirection] = useState<"left" | "right" | null>(null);
   const mediaSwipeTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -135,6 +142,8 @@ export default function MediaDisplay({
   const wheelGestureRef = wheelNavigationGuard ?? localWheelGestureRef;
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const viewerVideoRef = useRef<HTMLVideoElement>(null);
+  const videoViewTimerRef = useRef<number | null>(null);
+  const registeredVideoViewPostRef = useRef<number | null>(null);
   const allMedia: PostMedia[] = mediaItems?.length
     ? mediaItems
     : mediaId && mediaType
@@ -148,6 +157,37 @@ export default function MediaDisplay({
   const activeThumbnailId = activeMedia?.thumbnailId;
   const hasMedia = Boolean(activeMediaId && activeMediaType);
   const hasCarousel = allMedia.length > 1;
+  const displayedViews = viewCountOverride && viewCountOverride.postId === postId ? viewCountOverride.count : viewsCount;
+  const compactViews = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(displayedViews);
+
+  const recordQualifiedVideoView = useCallback(async () => {
+    if (postId === undefined || !onVideoView || registeredVideoViewPostRef.current === postId) return;
+    registeredVideoViewPostRef.current = postId;
+    try {
+      const count = await onVideoView(postId);
+      setViewCountOverride({ postId, count });
+    } catch (error) {
+      registeredVideoViewPostRef.current = null;
+      console.error("Could not record video view:", error);
+    }
+  }, [onVideoView, postId]);
+
+  const handleViewerVideoPlay = (video: HTMLVideoElement) => {
+    claimFeedVideo(video);
+    if (videoViewTimerRef.current !== null || postId === undefined || !onVideoView || registeredVideoViewPostRef.current === postId) return;
+    videoViewTimerRef.current = window.setTimeout(() => {
+      videoViewTimerRef.current = null;
+      void recordQualifiedVideoView();
+    }, 2000);
+  };
+
+  const cancelPendingVideoView = (video: HTMLVideoElement) => {
+    releaseFeedVideo(video);
+    if (videoViewTimerRef.current !== null) {
+      window.clearTimeout(videoViewTimerRef.current);
+      videoViewTimerRef.current = null;
+    }
+  };
 
   const stopActiveVideos = useCallback(() => {
     previewVideoRef.current?.pause();
@@ -174,6 +214,7 @@ export default function MediaDisplay({
   useEffect(() => () => {
     if (mediaSwipeTimerRef.current !== null) window.clearTimeout(mediaSwipeTimerRef.current);
     if (!wheelNavigationGuard && localWheelGestureRef.current.resetTimer !== null) window.clearTimeout(localWheelGestureRef.current.resetTimer);
+    if (videoViewTimerRef.current !== null) window.clearTimeout(videoViewTimerRef.current);
   }, [wheelNavigationGuard]);
 
   useEffect(() => {
@@ -458,8 +499,8 @@ export default function MediaDisplay({
             preload="metadata"
             aria-label={activeMediaName || "Post video"}
             onClick={openViewerFromPreview}
-            onPlay={(event) => claimFeedVideo(event.currentTarget)}
-            onPause={(event) => releaseFeedVideo(event.currentTarget)}
+            onPlay={(event) => handleViewerVideoPlay(event.currentTarget)}
+            onPause={(event) => cancelPendingVideoView(event.currentTarget)}
             className={`block ${hasCarousel ? "h-full w-full object-contain" : "max-h-[85vh] w-full object-contain"} cursor-pointer ${mediaSwipeClass}`}
           />
         ) : (
@@ -478,6 +519,7 @@ export default function MediaDisplay({
             />
           </button>
         )}
+        {activeMediaType === "video" && <span className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm" aria-label={`${displayedViews} video views`}><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>{compactViews} views</span>}
       </div>
       {hasCarousel && <div className="flex items-center justify-center gap-1.5 pb-2" role="tablist" aria-label="Post media">
         {allMedia.map((item, index) => <button key={`${item.mediaId}-${index}`} type="button" role="tab" aria-label={`Show media ${index + 1} of ${allMedia.length}`} aria-selected={visibleMediaIndex === index} onClick={() => selectMedia(index)} className={`h-1.5 rounded-full transition-all ${visibleMediaIndex === index ? "w-3 bg-[#7d80e8]" : "w-1.5 bg-gray-300"}`} />)}
@@ -562,8 +604,9 @@ export default function MediaDisplay({
               playsInline
               preload="metadata"
               aria-label={activeMediaName || "Full-screen post video"}
-              onPlay={(event) => claimFeedVideo(event.currentTarget)}
-              onPause={(event) => releaseFeedVideo(event.currentTarget)}
+              onPlay={(event) => handleViewerVideoPlay(event.currentTarget)}
+              onPause={(event) => cancelPendingVideoView(event.currentTarget)}
+              onEnded={(event) => cancelPendingVideoView(event.currentTarget)}
               className={`${hasCarousel ? "absolute left-1/2 top-1/2 aspect-[4/5] w-[min(90vw,68vh)] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 object-contain" : "absolute inset-0 h-full w-full object-contain"} ${mediaSwipeClass}`}
               onClick={(event) => event.stopPropagation()}
             />
@@ -596,6 +639,7 @@ export default function MediaDisplay({
             <button type="button" aria-label={isLiked ? "Unlike post" : "Like post"} aria-pressed={isLiked} onClick={(event) => { stopViewerClick(event); onLike?.(); }} className="flex flex-col items-center gap-1 text-xs drop-shadow-lg"><span className={`flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm ${isLiked || isPoppingLike ? "text-[#D4AF37]" : "text-white"}`}><svg viewBox="0 0 24 24" className={`h-6 w-6 transition-transform duration-300 ease-out ${isPoppingLike ? "scale-125 -rotate-12" : "scale-100 rotate-0"}`} fill={isLiked || isPoppingLike ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg></span>{likesCount}</button>
             <button type="button" aria-label="Dislike post" aria-pressed={isDisliked} onClick={(event) => { stopViewerClick(event); onDislike?.(); }} className={`flex flex-col items-center gap-1 text-xs drop-shadow-lg ${isDisliked ? "text-amber-300" : ""}`}><span className="flex h-11 w-11 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22L1.14 11.27c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2ZM19 3v12h4V3h-4Z"/></svg></span>{dislikesCount}</button>
             <button type="button" aria-label="Open comments" onClick={(event) => { stopViewerClick(event); closeViewer(); onComments?.(); }} className="flex flex-col items-center gap-1 text-xs drop-shadow-lg"><span className="flex h-11 w-11 items-center justify-center"><svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3H13a8.5 8.5 0 0 1 8 8.5Z"/></svg></span>{commentsCount}</button>
+            {activeMediaType === "video" && <div className="flex flex-col items-center gap-1 text-xs drop-shadow-lg" aria-label={`${displayedViews} video views`}><span className="flex h-11 w-11 items-center justify-center"><svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span>{compactViews}</div>}
             <button type="button" aria-label={isSaved ? "Remove saved post" : "Save post"} aria-pressed={isSaved} onClick={(event) => { stopViewerClick(event); onSave?.(); }} className={`flex flex-col items-center gap-1 text-xs drop-shadow-lg ${isSaved ? "text-amber-300" : ""}`}><span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm"><svg viewBox="0 0 24 24" className="h-6 w-6" fill={isSaved ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4Z"/></svg></span></button>
           </div>
 

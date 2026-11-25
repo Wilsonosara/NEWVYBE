@@ -32,6 +32,7 @@ type PostContextType = {
   deletePost: (postId: number) => Promise<void>;
   likePost: (postId: number) => Promise<void>;
   unlikePost: (postId: number) => Promise<void>;
+  recordVideoView: (postId: number) => Promise<number>;
   addComment: (
     postId: number,
     comment: string,
@@ -81,6 +82,7 @@ type DatabasePost = {
   world: string;
   likes: number;
   comments: number;
+  video_views?: number | null;
   media_path: string | null;
   media_type: "image" | "video" | null;
   media_name: string | null;
@@ -287,6 +289,7 @@ function mapDatabasePost(row: DatabasePost): Post {
     world: row.world,
     likes: Number(row.likes ?? 0),
     comments: Number(row.comments ?? 0),
+    views: Number(row.video_views ?? 0),
     time: formatPostTime(row.created_at),
     ...(row.club_slug ? { clubSlug: row.club_slug } : {}),
     ...(firstMedia
@@ -438,7 +441,7 @@ export function PostProvider({
         const { data, error } = await supabase
           .from("posts")
           .select(
-            "id, user_id, author, username, content, world, likes, comments, media_path, media_type, media_name, media_items, club_slug, created_at"
+            "id, user_id, author, username, content, world, likes, comments, video_views, media_path, media_type, media_name, media_items, club_slug, created_at"
           )
           .order("created_at", { ascending: false })
           .limit(100);
@@ -886,7 +889,7 @@ export function PostProvider({
           club_slug: normalizedClubSlug,
         })
         .select(
-          "id, user_id, author, username, content, world, likes, comments, media_path, media_type, media_name, media_items, club_slug, created_at"
+          "id, user_id, author, username, content, world, likes, comments, video_views, media_path, media_type, media_name, media_items, club_slug, created_at"
         )
         .single();
 
@@ -1091,6 +1094,19 @@ export function PostProvider({
     await refreshLikeCounts();
 
     window.dispatchEvent(new Event("project-one-likes-updated"));
+  }
+
+  async function recordVideoView(postId: number) {
+    const { data, error } = await createClient().rpc("record_post_video_view", { p_post_id: postId });
+    if (error) throw error;
+    const views = Number(data ?? 0);
+    setPosts((current) => {
+      const updatedPosts = current.map((post) => post.id === postId ? { ...post, views } : post);
+      postsRef.current = updatedPosts;
+      return updatedPosts;
+    });
+    window.dispatchEvent(new CustomEvent("project-one-video-views-updated", { detail: { postId, views } }));
+    return views;
   }
 
   async function addComment(
@@ -1374,6 +1390,7 @@ export function PostProvider({
         deletePost,
         likePost,
         unlikePost,
+        recordVideoView,
         addComment,
         toggleCommentLike,
         deleteComment,

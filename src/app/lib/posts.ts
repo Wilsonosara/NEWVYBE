@@ -15,6 +15,7 @@ export type Post = {
   world: string;
   likes: number;
   comments: number;
+  views?: number;
   time: string;
 
   // Backward compatibility with existing single-media posts.

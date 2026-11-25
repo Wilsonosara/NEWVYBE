@@ -35,6 +35,7 @@ type SearchPostRow = {
   world: string;
   likes: number;
   comments: number;
+  video_views?: number | null;
   media_path: string | null;
   media_type: "image" | "video" | null;
   media_name: string | null;
@@ -446,7 +447,7 @@ function mapSearchPost(row: SearchPostRow): Post {
   const first = items[0];
   return {
     id: Number(row.id), author: row.author, username: row.username, authorId: row.user_id,
-    content: row.content, world: row.world, likes: Number(row.likes ?? 0), comments: Number(row.comments ?? 0), time: row.created_at,
+    content: row.content, world: row.world, likes: Number(row.likes ?? 0), comments: Number(row.comments ?? 0), views: Number(row.video_views ?? 0), time: row.created_at,
     ...(first ? { mediaId: first.mediaId, mediaType: first.mediaType, mediaName: first.mediaName } : {}),
     ...(items.length ? { mediaItems: items } : {}),
   };
@@ -480,6 +481,18 @@ export default function ExplorePage() {
     { name: c.career, href: "/app/career" },
     { name: c.social, href: "/app" },
   ];
+
+  useEffect(() => {
+    const onViewsUpdated = (event: Event) => {
+      const { postId, views } = (event as CustomEvent<{ postId: number; views: number }>).detail ?? {};
+      if (typeof postId !== "number" || typeof views !== "number") return;
+      const updateViews = (post: Post) => post.id === postId ? { ...post, views } : post;
+      setSearchPosts((current) => current.map(updateViews));
+      setShuffledFeedPosts((current) => current.map(updateViews));
+    };
+    window.addEventListener("project-one-video-views-updated", onViewsUpdated);
+    return () => window.removeEventListener("project-one-video-views-updated", onViewsUpdated);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -683,7 +696,7 @@ export default function ExplorePage() {
           ];
           if (/\bvideos?\b/i.test(term)) filters.push("media_type.eq.video");
           const query = supabase.from("posts")
-            .select("id,user_id,author,username,content,world,likes,comments,media_path,media_type,media_name,media_items,created_at")
+            .select("id,user_id,author,username,content,world,likes,comments,video_views,media_path,media_type,media_name,media_items,created_at")
             .or(filters.join(","))
             .order("created_at", { ascending: false })
             .limit(60);
@@ -799,14 +812,16 @@ export default function ExplorePage() {
   }, [search, searchPosts, shuffledFeedPosts, blockLoadError]);
 
   const exploreTiles = useMemo(() => postsForGrid.map((post) => {
+    const latestPost = posts.find((candidate) => candidate.id === post.id);
+    const postWithLatestViews = latestPost ? { ...post, views: latestPost.views ?? post.views } : post;
     const mediaItems = post.mediaItems?.length
       ? post.mediaItems
       : post.mediaId && post.mediaType
         ? [{ mediaId: post.mediaId, mediaType: post.mediaType, mediaName: post.mediaName || "Post media" }]
         : [];
     const media = mediaItems.length ? mediaItems[(post.id + mediaItems.length) % mediaItems.length] : null;
-    return { post, media };
-  }), [postsForGrid]);
+    return { post: postWithLatestViews, media };
+  }), [postsForGrid, posts]);
 
   return (
     <main className="min-h-screen bg-white text-gray-900">
