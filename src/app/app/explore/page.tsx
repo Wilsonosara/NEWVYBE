@@ -3,7 +3,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "../../../../utils/supabase/client";
 import { useLanguage } from "../LanguageProvider";
@@ -462,6 +462,7 @@ export default function ExplorePage() {
   const [searchPostsLoading, setSearchPostsLoading] = useState(false);
   const [searchPostsError, setSearchPostsError] = useState("");
   const [shuffledFeedPosts, setShuffledFeedPosts] = useState<Post[]>([]);
+  const shuffledFeedSignatureRef = useRef("");
   const [currentUserId, setCurrentUserId] = useState("");
   const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -715,6 +716,9 @@ export default function ExplorePage() {
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
+      const signature = `${currentUserId}|${blockedIds.join(",")}|${posts.map((post) => post.id).join(",")}`;
+      if (shuffledFeedSignatureRef.current === signature) return;
+      shuffledFeedSignatureRef.current = signature;
       const available = posts.filter((post) => post.authorId !== currentUserId && !blockedIds.includes(post.authorId ?? ""));
       for (let index = available.length - 1; index > 0; index -= 1) {
         const randomIndex = Math.floor(Math.random() * (index + 1));

@@ -3,9 +3,10 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { createClient } from "../../../../utils/supabase/client";
 import { getMedia } from "../../lib/mediaStorage";
-import { usePosts } from "../PostContext";
+import { usePosts, type PostComment } from "../PostContext";
 import MediaDisplay, { lockPageScroll } from "../MediaDisplay";
 import type { Post, PostMedia } from "../../lib/posts";
 
@@ -129,11 +130,27 @@ function ExplorePostSlide({ item, onClose, onNavigate, onComments, wheelNavigati
 }
 
 function ExploreCommentsPanel({ item, onClose }: { item: ExploreItem; onClose: () => void }) {
-  const { addComment, postComments } = usePosts();
+  const { addComment, postComments, toggleCommentLike, deleteComment } = usePosts();
   const [commentText, setCommentText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [replyTo, setReplyTo] = useState<PostComment | null>(null);
+  const [expandedReplies, setExpandedReplies] = useState<Set<number>>(new Set());
+  const [pendingLikeId, setPendingLikeId] = useState<number | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const comments = postComments[item.post.id] ?? [];
+  useEffect(() => {
+    const unlock = lockPageScroll();
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { unlock(); window.removeEventListener("keydown", onKeyDown); };
+  }, [onClose]);
+  useEffect(() => {
+    let active = true;
+    void createClient().auth.getUser().then(({ data: { user } }) => { if (active) setCurrentUserId(user?.id ?? null); });
+    return () => { active = false; };
+  }, []);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!commentText.trim() || busy) return;
@@ -141,17 +158,54 @@ function ExploreCommentsPanel({ item, onClose }: { item: ExploreItem; onClose: (
     try {
       const { data: { user } } = await createClient().auth.getUser();
       if (!user) throw new Error("Please log in to comment.");
-      await addComment(item.post.id, commentText.trim());
+      await addComment(item.post.id, commentText.trim(), undefined, replyTo?.id ?? null);
       setCommentText("");
+      setReplyTo(null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not post your comment."); }
     finally { setBusy(false); }
   };
-  return <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/60 p-3 sm:items-center" onClick={onClose}>
-    <section role="dialog" aria-modal="true" aria-label="Post comments" onClick={(event) => event.stopPropagation()} className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 text-gray-900">
-      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-bold">Comments</h2><button type="button" onClick={onClose} aria-label="Close comments" className="rounded-full px-3 py-1 text-xl text-gray-500 hover:bg-gray-100">×</button></div>
-      <div className="space-y-4">{comments.map((comment) => <p key={comment.id} className="text-sm"><strong>{comment.author}</strong>{" "}{comment.content}</p>)}{!comments.length && <p className="text-sm text-gray-500">Be the first to comment.</p>}</div>
-      <form onSubmit={submit} className="mt-5 flex gap-2 border-t border-gray-100 pt-4"><input value={commentText} onChange={(event) => setCommentText(event.target.value)} aria-label="Write a comment" placeholder="Write a comment…" className="min-w-0 flex-1 rounded-full border border-gray-200 px-4 py-2 text-sm outline-none focus:border-violet-400" /><button type="submit" disabled={!commentText.trim() || busy} className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{busy ? "Posting…" : "Post"}</button></form>
-      {error && <p role="alert" className="mt-2 text-xs text-rose-600">{error}</p>}
+  const handleLike = async (comment: PostComment) => {
+    if (pendingLikeId !== null) return;
+    setPendingLikeId(comment.id); setError("");
+    try { await toggleCommentLike(item.post.id, comment.id); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update comment like."); }
+    finally { setPendingLikeId(null); }
+  };
+  const handleDelete = async (comment: PostComment) => {
+    if (deletingId !== null || !window.confirm("Delete your comment? This cannot be undone.")) return;
+    setDeletingId(comment.id); setError("");
+    try { await deleteComment(item.post.id, comment.id); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete your comment."); }
+    finally { setDeletingId(null); }
+  };
+  const renderComment = (comment: PostComment, depth = 0) => {
+    const replies = comments.filter((entry) => entry.parentCommentId === comment.id);
+    return <div key={`${item.post.id}-${comment.id}`} className="flex gap-2.5" style={{ marginLeft: `${Math.min(depth * 24, 48)}px` }}>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-500"><span className="text-xs font-bold">{comment.author.slice(0, 1).toUpperCase()}</span></div>
+      <div className="min-w-0 flex-1">
+        <div className="rounded-2xl bg-gray-100 px-3 py-2">
+          <div className="flex flex-wrap items-baseline gap-x-2">{comment.userId ? <Link href={`/app/profile?id=${encodeURIComponent(comment.userId)}`} className="text-sm font-bold text-gray-950 hover:underline">{comment.author}</Link> : <span className="text-sm font-bold text-gray-950">{comment.author}</span>}{comment.username && <span className="text-xs text-gray-500">{comment.username}</span>}<span className="text-xs text-gray-400">· {comment.createdAt}</span></div>
+          {comment.content && <p className="mt-1 break-words text-sm text-gray-800">{comment.content}</p>}
+          {comment.audioUrl && <audio controls preload="none" src={comment.audioUrl} className="mt-2 block h-10 max-w-full" aria-label={`Voice comment by ${comment.username || comment.author}`} />}
+        </div>
+        <div className="mt-1 flex items-center gap-4 px-2 text-xs font-semibold text-gray-500">
+          <button type="button" onClick={() => void handleLike(comment)} disabled={pendingLikeId === comment.id} className={comment.likedByMe ? "text-rose-600" : "hover:text-gray-900"}>{comment.likedByMe ? "♥" : "♡"} {comment.likes > 0 ? comment.likes : "Like"}</button>
+          <button type="button" onClick={() => { setReplyTo(comment); setExpandedReplies((current) => new Set(current).add(comment.id)); }} className="hover:text-gray-900">Reply {replies.length}</button>
+          {comment.userId === currentUserId && <button type="button" onClick={() => void handleDelete(comment)} disabled={deletingId !== null} className="hover:text-gray-900 disabled:opacity-50">{deletingId === comment.id ? "Deleting…" : "Delete"}</button>}
+        </div>
+        {expandedReplies.has(comment.id) && replies.map((reply) => renderComment(reply, depth + 1))}
+      </div>
+    </div>;
+  };
+  return <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section role="dialog" aria-modal="true" aria-label="Post comments" className="flex h-[86dvh] max-h-[760px] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-[min(760px,85vh)] sm:rounded-3xl">
+      <header className="flex shrink-0 items-center justify-between border-b border-gray-100 px-5 py-4"><div className="min-w-0"><h2 className="text-base font-bold text-gray-950">Comments</h2><p className="mt-0.5 truncate text-xs text-gray-500">{item.post.author} · {item.post.content}</p></div><button type="button" onClick={onClose} aria-label="Close comments" className="ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl text-gray-500 hover:bg-gray-100">×</button></header>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"><div className="space-y-4">{comments.filter((comment) => !comment.parentCommentId).map((comment) => renderComment(comment))}{comments.length === 0 && <p className="py-8 text-center text-sm text-gray-500">Be the first to comment.</p>}</div>{error && <p className="mt-3 text-xs text-red-600" role="alert">{error}</p>}</div>
+      <form className="relative flex shrink-0 items-center gap-2 border-t border-gray-100 bg-white px-3 py-3 sm:px-4" onSubmit={(event) => { event.preventDefault(); void submit(event); }}>
+        {replyTo && <div className="absolute bottom-full left-4 mb-1 flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600"><span>Replying to {replyTo.author}</span><button type="button" onClick={() => setReplyTo(null)} className="font-bold hover:text-gray-950" aria-label="Cancel reply">×</button></div>}
+        <input type="text" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder={replyTo ? `Reply to ${replyTo.author}...` : "Add a comment…"} aria-label={replyTo ? `Reply to ${replyTo.author}` : "Add a comment"} className="min-w-0 flex-1 rounded-full bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-gray-400" />
+        <button type="submit" disabled={!commentText.trim() || busy} className="rounded-full bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Posting…" : "Post"}</button>
+      </form>
     </section>
   </div>;
 }
