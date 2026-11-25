@@ -35,6 +35,13 @@ type ProfileData = {
   avatarUrl?: string | null;
 };
 
+type FollowListUser = {
+  id: string;
+  name: string;
+  username: string;
+  avatarUrl: string | null;
+};
+
 type HighlightItem = {
   id: number;
   highlight_id: number;
@@ -351,6 +358,10 @@ function ProfilePageContent() {
   const [likedPostIds, setLikedPostIds] = useState<number[]>([]);
   const [followingCount, setFollowingCount] = useState(0);
   const [followersCount, setFollowersCount] = useState(0);
+  const [followListType, setFollowListType] = useState<"followers" | "following" | null>(null);
+  const [followListUsers, setFollowListUsers] = useState<FollowListUser[]>([]);
+  const [followListLoading, setFollowListLoading] = useState(false);
+  const [followListError, setFollowListError] = useState("");
 
   const [requestedUsername, setRequestedUsername] = useState<string | null>(
     () => {
@@ -376,6 +387,50 @@ function ProfilePageContent() {
   const [openedProfileHighlight, setOpenedProfileHighlight] =
     useState<ProfileHighlight | null>(null);
   const [profileHighlightIndex, setProfileHighlightIndex] = useState(0);
+
+  async function openFollowList(type: "followers" | "following") {
+    setFollowListType(type);
+    setFollowListUsers([]);
+    setFollowListError("");
+    setFollowListLoading(true);
+
+    try {
+      const targetUserId = displayedProfile?.id || currentUserId;
+      if (!targetUserId) throw new Error("Unable to identify this profile.");
+      const supabase = createClient();
+      const { data: followRows, error: followError } = await supabase
+        .from("follows")
+        .select("follower_id, following_id")
+        .eq(type === "followers" ? "following_id" : "follower_id", targetUserId);
+
+      if (followError) throw followError;
+      const userIds = (followRows ?? []).map((row) => type === "followers" ? row.follower_id : row.following_id);
+      if (!userIds.length) return;
+
+      const { data: profileRows, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_url")
+        .in("id", userIds);
+
+      if (profileError) throw profileError;
+      const profilesById = new Map((profileRows ?? []).map((profile) => [profile.id, profile]));
+      setFollowListUsers(userIds.flatMap((id) => {
+        const profile = profilesById.get(id);
+        if (!profile) return [];
+        return [{
+          id: profile.id,
+          name: profile.display_name?.trim() || profile.username || "VYBE member",
+          username: profile.username || "",
+          avatarUrl: profile.avatar_url || null,
+        }];
+      }));
+    } catch (error) {
+      console.error(`Unable to load ${type}:`, error);
+      setFollowListError(`Could not load ${type}. Please try again.`);
+    } finally {
+      setFollowListLoading(false);
+    }
+  }
 
   useEffect(() => {
     const requested = searchParams.get("username");
@@ -1492,8 +1547,8 @@ function ProfilePageContent() {
 
         <div className="mt-2.5 grid grid-cols-3 divide-x divide-[#d9ddea]">
           <div className="px-2 text-center"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{profilePosts.length}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Posts</p></div>
-          <div className="px-2 text-center"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{followersCount}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Followers</p></div>
-          <div className="px-2 text-center"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{followingCount}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Following</p></div>
+          <button type="button" onClick={() => void openFollowList("followers")} aria-label={`Show ${followersCount} followers`} className="px-2 text-center transition hover:text-purple-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{followersCount}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Followers</p></button>
+          <button type="button" onClick={() => void openFollowList("following")} aria-label={`Show ${followingCount} following`} className="px-2 text-center transition hover:text-purple-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600"><p className="text-lg font-bold leading-5 tabular-nums sm:text-xl">{followingCount}</p><p className="mt-1 text-xs text-[#69758c] sm:text-sm">Following</p></button>
         </div>
 
         <div className="mt-4">
@@ -1783,6 +1838,26 @@ function ProfilePageContent() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {followListType && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/55 p-4" onClick={() => setFollowListType(null)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="follow-list-title" className="flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <header className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 id="follow-list-title" className="text-lg font-bold text-gray-950">{followListType === "followers" ? "Followers" : "Following"}</h2>
+              <button type="button" onClick={() => setFollowListType(null)} aria-label="Close list" className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-gray-500 hover:bg-gray-100">×</button>
+            </header>
+            <div className="min-h-0 overflow-y-auto p-2">
+              {followListLoading ? <p className="p-6 text-center text-sm text-gray-500">Loading…</p>
+                : followListError ? <p role="alert" className="p-6 text-center text-sm text-red-600">{followListError}</p>
+                  : followListUsers.length === 0 ? <p className="p-6 text-center text-sm text-gray-500">{followListType === "followers" ? "No followers yet." : "Not following anyone yet."}</p>
+                    : followListUsers.map((person) => <button key={person.id} type="button" onClick={() => { setFollowListType(null); router.push(`/app/profile?id=${encodeURIComponent(person.id)}`); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-gray-50">
+                      <Avatar src={person.avatarUrl} name={person.name} className="h-11 w-11 shrink-0 rounded-full" />
+                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-gray-950">{person.name}</span><span className="block truncate text-xs text-gray-500">{formatUsername(person.username)}</span></span>
+                    </button>)}
+            </div>
           </section>
         </div>
       )}
