@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "../../../utils/supabase/client";
 import ContactAvatarIcon from "./ContactAvatarIcon";
 import { usePosts } from "./PostContext";
+import CropDialog from "./CropDialog";
 
 type StoryMedia = {
   mediaId: string;
@@ -162,6 +163,8 @@ async function renderEditedStoryImage(
     const width = image.naturalWidth * scale * zoom;
     const height = image.naturalHeight * scale * zoom;
     context.filter = STORY_FILTERS[theme];
+    // Match CSS object-position: 0% aligns the image's top/left edge, 100%
+    // aligns its bottom/right edge, and 50% centers it in the story frame.
     context.drawImage(image, (canvas.width - width) * position.x / 100, (canvas.height - height) * position.y / 100, width, height);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not prepare this story image.")), "image/png");
@@ -1174,11 +1177,11 @@ export default function Stories() {
   }, [viewerIndex, mediaIndex, paused, nextStory]);
 
   const [pendingStoryFiles, setPendingStoryFiles] = useState<File[]>([]);
+  const [storyCropFile, setStoryCropFile] = useState<File | null>(null);
   const [storyText, setStoryText] = useState("");
   const [showStoryComposer, setShowStoryComposer] = useState(false);
   const [storyPreviewUrl, setStoryPreviewUrl] = useState("");
   const captionDragRef = useRef(false);
-  const cropDragRef = useRef<{ x: number; y: number; position: { x: number; y: number } } | null>(null);
 
   useEffect(() => {
     const file = pendingStoryFiles[0];
@@ -1194,14 +1197,6 @@ export default function Stories() {
   const moveComposerCaption = (event: ReactPointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
-    if (cropDragRef.current) {
-      const drag = cropDragRef.current;
-      setStoryCropPosition({
-        x: Math.min(100, Math.max(0, drag.position.x - ((event.clientX - drag.x) / bounds.width) * 100)),
-        y: Math.min(100, Math.max(0, drag.position.y - ((event.clientY - drag.y) / bounds.height) * 100)),
-      });
-      return;
-    }
     if (!captionDragRef.current) return;
     setStoryCaptionPosition({
       x: Math.min(92, Math.max(8, ((event.clientX - bounds.left) / bounds.width) * 100)),
@@ -1725,27 +1720,16 @@ export default function Stories() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
-                <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[400px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326]" onPointerDown={(event) => { if (!(event.target instanceof HTMLImageElement)) return; cropDragRef.current = { x: event.clientX, y: event.clientY, position: storyCropPosition }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={moveComposerCaption} onPointerUp={() => { captionDragRef.current = false; cropDragRef.current = null; }} onPointerCancel={() => { captionDragRef.current = false; cropDragRef.current = null; }}>
+                <div className="relative mx-auto aspect-[9/16] h-[38dvh] max-h-[400px] w-auto max-w-full touch-none overflow-hidden rounded-2xl bg-[#191326]" onPointerMove={moveComposerCaption} onPointerUp={() => { captionDragRef.current = false; }} onPointerCancel={() => { captionDragRef.current = false; }}>
                   {pendingStoryFiles[0] && storyPreviewUrl && (pendingStoryFiles[0].type.startsWith("video/") ? (
                     <video src={storyPreviewUrl} muted playsInline controls className="h-full w-full" style={{ objectFit: storyCrop, filter: STORY_FILTERS[storyTheme] }} />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={storyPreviewUrl} alt="Story preview; drag to adjust crop" className="h-full w-full" style={{ objectFit: storyCrop, objectPosition: `${storyCropPosition.x}% ${storyCropPosition.y}%`, transform: `scale(${storyCropZoom})`, filter: STORY_FILTERS[storyTheme] }} />
+                    <img src={storyPreviewUrl} alt="Story preview; drag to adjust crop" draggable={false} className="pointer-events-none h-full w-full select-none" style={{ objectFit: storyCrop, objectPosition: `${storyCropPosition.x}% ${storyCropPosition.y}%`, transform: `scale(${storyCropZoom})`, filter: STORY_FILTERS[storyTheme] }} />
                   ))}
-                  {storyText && <button type="button" onPointerDown={(event) => { event.preventDefault(); captionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className={`absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl px-3 py-2 text-center font-semibold shadow ${STORY_CAPTION_SIZE_CLASSES[storyCaptionSize]} ${STORY_CAPTION_COLOR_CLASSES[storyCaptionColor]} ${storyCaptionItalic ? "italic" : "not-italic"} ${storyCaptionFont === "serif" ? "font-serif" : "font-sans"} ${storyCaptionBackground ? storyCaptionColor === "black" ? "bg-white/85" : "bg-black/55" : "bg-transparent"}`} style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyText}</button>}
+                  {!pendingStoryFiles[0]?.type.startsWith("video/") && <button type="button" onClick={() => setStoryCropFile(pendingStoryFiles[0])} aria-label="Crop story photo" className="absolute right-3 top-3 z-20 inline-flex items-center gap-2 rounded-full bg-black/65 px-3 py-2 text-xs font-semibold text-white shadow-lg"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 3H5a2 2 0 0 0-2 2v2m14-4h2a2 2 0 0 1 2 2v2M3 17v2a2 2 0 0 0 2 2h2m14-4v2a2 2 0 0 1-2 2h-2M8 8h8v8H8z" /></svg>Crop</button>}
+                  {storyText && <button type="button" data-story-caption onPointerDown={(event) => { event.preventDefault(); captionDragRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} className={`absolute z-10 max-w-[88%] -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-xl px-3 py-2 text-center font-semibold shadow ${STORY_CAPTION_SIZE_CLASSES[storyCaptionSize]} ${STORY_CAPTION_COLOR_CLASSES[storyCaptionColor]} ${storyCaptionItalic ? "italic" : "not-italic"} ${storyCaptionFont === "serif" ? "font-serif" : "font-sans"} ${storyCaptionBackground ? storyCaptionColor === "black" ? "bg-white/85" : "bg-black/55" : "bg-transparent"}`} style={{ left: `${storyCaptionPosition.x}%`, top: `${storyCaptionPosition.y}%` }} aria-label="Drag caption to move it">{storyText}</button>}
                   {pendingStoryFiles.length > 1 && <span className="absolute left-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white">{pendingStoryFiles.length} stories</span>}
-                </div>
-                <div>
-                  <p className="mb-2 text-sm font-semibold">Crop</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["cover", "contain"] as const).map((crop) => <button key={crop} type="button" onClick={() => setStoryCrop(crop)} aria-pressed={storyCrop === crop} className={`rounded-xl border px-3 py-2 text-sm font-medium ${storyCrop === crop ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{crop === "cover" ? "Fill screen" : "Fit image"}</button>)}
-                  </div>
-                  {pendingStoryFiles[0] && !pendingStoryFiles[0].type.startsWith("video/") && <div className="mt-3 space-y-2">
-                    <p className="text-xs text-gray-500">Drag the photo to position it. Adjust the crop below.</p>
-                    <label className="block text-xs font-medium text-gray-600">Zoom <input aria-label="Zoom story photo crop" type="range" min="1" max="3" step="0.01" value={storyCropZoom} onChange={(event) => setStoryCropZoom(Number(event.target.value))} className="mt-1 w-full accent-purple-700" /></label>
-                    <label className="block text-xs font-medium text-gray-600">Horizontal position <input aria-label="Set horizontal story crop position" type="range" min="0" max="100" value={storyCropPosition.x} onChange={(event) => setStoryCropPosition((current) => ({ ...current, x: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
-                    <label className="block text-xs font-medium text-gray-600">Vertical position <input aria-label="Set vertical story crop position" type="range" min="0" max="100" value={storyCropPosition.y} onChange={(event) => setStoryCropPosition((current) => ({ ...current, y: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
-                  </div>}
                 </div>
                 <div>
                   <p className="mb-2 text-sm font-semibold">Theme</p>
@@ -1778,6 +1762,22 @@ export default function Stories() {
               </div>
             </div>
           </div>
+        )}
+
+        {storyCropFile && (
+          <CropDialog
+            file={storyCropFile}
+            initialAspectRatio={9 / 16}
+            initialAspectLabel="Story · 9:16"
+            onCancel={() => setStoryCropFile(null)}
+            onApply={(croppedFile) => {
+              setPendingStoryFiles((files) => files.map((file, index) => index === 0 ? croppedFile : file));
+              setStoryCropFile(null);
+              setStoryCrop("cover");
+              setStoryCropZoom(1);
+              setStoryCropPosition({ x: 50, y: 50 });
+            }}
+          />
         )}
 
         {notice && (

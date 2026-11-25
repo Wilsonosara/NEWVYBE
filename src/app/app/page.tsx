@@ -682,8 +682,10 @@ export default function AppHome() {
   const [storyShareDraft, setStoryShareDraft] = useState<StoryShareDraft | null>(null);
   const [storyShareCaption, setStoryShareCaption] = useState("");
   const [storyShareCrop, setStoryShareCrop] = useState<"cover" | "contain">("cover");
+  const [storyShareCropMode, setStoryShareCropMode] = useState(false);
   const [storyShareZoom, setStoryShareZoom] = useState(1);
   const [storySharePosition, setStorySharePosition] = useState({ x: 50, y: 50 });
+  const storyShareCropDragRef = useRef<{ x: number; y: number; position: { x: number; y: number }; travelX: number; travelY: number } | null>(null);
   const [storyShareTheme, setStoryShareTheme] = useState<"original" | "warm" | "cool" | "mono" | "vivid">("original");
   const [storyCaptionPosition, setStoryCaptionPosition] = useState({ x: 50, y: 76 });
   const [storyCaptionSize, setStoryCaptionSize] = useState<"small" | "medium" | "large">("medium");
@@ -700,6 +702,16 @@ export default function AppHome() {
     setStoryCaptionPosition({
       x: Math.min(92, Math.max(8, ((event.clientX - bounds.left) / bounds.width) * 100)),
       y: Math.min(92, Math.max(8, ((event.clientY - bounds.top) / bounds.height) * 100)),
+    });
+  };
+  const updateStoryShareCropPosition = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = storyShareCropDragRef.current;
+    if (!drag) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    setStorySharePosition({
+      x: drag.travelX ? Math.min(100, Math.max(0, drag.position.x - ((event.clientX - drag.x) / drag.travelX) * 100)) : 50,
+      y: drag.travelY ? Math.min(100, Math.max(0, drag.position.y - ((event.clientY - drag.y) / drag.travelY) * 100)) : 50,
     });
   };
   const [shareProfiles, setShareProfiles] = useState<ShareProfile[]>([]);
@@ -1816,6 +1828,7 @@ export default function AppHome() {
         isVideo: mediaType === "video" && !!mediaId,
         extension,
       });
+      setStoryShareCropMode(false);
       setStoryShareCaption(String(post.content || "").trim().slice(0, 180));
       setStoryShareCrop("cover");
       setStoryShareZoom(1);
@@ -2721,27 +2734,17 @@ export default function AppHome() {
                 </div>
               ) : shareMode === "story-editor" && storyShareDraft ? (
                 <div className="space-y-4">                  <button type="button" onClick={() => setShareMode("options")} className="text-sm font-semibold text-purple-700 hover:underline">← Back to sharing options</button>
-                  <div className="relative mx-auto aspect-[9/16] max-h-[38dvh] overflow-hidden rounded-2xl bg-[#191326] shadow-inner">
+                  <div className="relative mx-auto aspect-[9/16] max-h-[38dvh] touch-none overflow-hidden rounded-2xl bg-[#191326] shadow-inner" onPointerDown={(event) => { if (storyShareDraft.isVideo || (event.target as HTMLElement).closest("[data-story-share-caption], [data-story-share-crop-button]")) return; if (!storyShareCropMode) return; const image = event.currentTarget.querySelector("img"); const bounds = event.currentTarget.getBoundingClientRect(); const scale = image?.naturalWidth && image.naturalHeight ? Math.max(bounds.width / image.naturalWidth, bounds.height / image.naturalHeight) * storyShareZoom : 0; storyShareCropDragRef.current = { x: event.clientX, y: event.clientY, position: storySharePosition, travelX: image ? Math.max(0, image.naturalWidth * scale - bounds.width) : 0, travelY: image ? Math.max(0, image.naturalHeight * scale - bounds.height) : 0 }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={updateStoryShareCropPosition} onPointerUp={() => { storyShareCropDragRef.current = null; }} onPointerCancel={() => { storyShareCropDragRef.current = null; }}>
                     {storyShareDraft.isVideo ? (
                       <video src={storyShareDraft.mediaUrl} muted playsInline controls className={`h-full w-full ${storyShareCrop === "cover" ? "object-cover" : "object-contain"}`} style={{ filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
                     ) : (
-                      <img src={storyShareDraft.mediaUrl} alt="Story preview" className="h-full w-full object-contain" style={{ objectFit: storyShareCrop, objectPosition: `${storySharePosition.x}% ${storySharePosition.y}%`, transform: `scale(${storyShareZoom})`, filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
+                      <img src={storyShareDraft.mediaUrl} alt="Story preview; drag to adjust crop" draggable={false} className="pointer-events-none h-full w-full select-none object-contain" style={{ objectFit: storyShareCrop, objectPosition: `${storySharePosition.x}% ${storySharePosition.y}%`, transform: `scale(${storyShareZoom})`, filter: ({ original: "none", warm: "sepia(.28) saturate(1.2)", cool: "hue-rotate(12deg) saturate(1.15)", mono: "grayscale(1)", vivid: "saturate(1.5) contrast(1.08)" })[storyShareTheme] }} />
                     )}
-                    {(storyShareCaption || storyShareDraft.postId) && <div className="pointer-events-none absolute inset-x-4 bottom-8 text-center"><span className={`rounded-xl px-3 py-2 font-semibold shadow ${STORY_CAPTION_SIZE_CLASSES[storyCaptionSize]} ${STORY_CAPTION_COLOR_CLASSES[storyCaptionColor]} ${storyCaptionItalic ? "italic" : "not-italic"} ${storyCaptionFont === "serif" ? "font-serif" : "font-sans"} ${storyCaptionBackground ? storyCaptionColor === "black" ? "bg-white/85" : "bg-black/50" : "bg-transparent shadow-none"}`}>{storyShareCaption || "Shared post"}</span></div>}
+                    {!storyShareDraft.isVideo && <button type="button" data-story-share-crop-button onClick={() => setStoryShareCropMode((active) => !active)} aria-pressed={storyShareCropMode} className={`absolute right-3 top-3 z-20 inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold shadow-lg ${storyShareCropMode ? "bg-white text-purple-800" : "bg-black/65 text-white"}`}><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 3H5a2 2 0 0 0-2 2v2m14-4h2a2 2 0 0 1 2 2v2M3 17v2a2 2 0 0 0 2 2h2m14-4v2a2 2 0 0 1-2 2h-2M8 8h8v8H8z" /></svg>{storyShareCropMode ? "Done" : "Crop"}</button>}
+                    {(storyShareCaption || storyShareDraft.postId) && <div data-story-share-caption className="pointer-events-none absolute inset-x-4 bottom-8 z-10 text-center"><span className={`rounded-xl px-3 py-2 font-semibold shadow ${STORY_CAPTION_SIZE_CLASSES[storyCaptionSize]} ${STORY_CAPTION_COLOR_CLASSES[storyCaptionColor]} ${storyCaptionItalic ? "italic" : "not-italic"} ${storyCaptionFont === "serif" ? "font-serif" : "font-sans"} ${storyCaptionBackground ? storyCaptionColor === "black" ? "bg-white/85" : "bg-black/50" : "bg-transparent shadow-none"}`}>{storyShareCaption || "Shared post"}</span></div>}
                   </div>
 
-                  <div>
-                    <p className="mb-2 text-sm font-semibold">Crop</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["cover", "contain"] as const).map((crop) => <button key={crop} type="button" onClick={() => setStoryShareCrop(crop)} aria-pressed={storyShareCrop === crop} className={`rounded-xl border px-3 py-2 text-sm font-medium capitalize ${storyShareCrop === crop ? "border-purple-500 bg-purple-50 text-purple-800" : "border-gray-200"}`}>{crop === "cover" ? "Fill screen" : "Fit image"}</button>)}
-                    </div>
-                    {!storyShareDraft.isVideo && <div className="mt-3 space-y-2">
-                      <p className="text-xs text-gray-500">Adjust the image crop before posting.</p>
-                      <label className="block text-xs font-medium text-gray-600">Zoom <input aria-label="Zoom shared story crop" type="range" min="1" max="3" step="0.01" value={storyShareZoom} onChange={(event) => setStoryShareZoom(Number(event.target.value))} className="mt-1 w-full accent-purple-700" /></label>
-                      <label className="block text-xs font-medium text-gray-600">Horizontal position <input aria-label="Set horizontal shared story crop position" type="range" min="0" max="100" value={storySharePosition.x} onChange={(event) => setStorySharePosition((current) => ({ ...current, x: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
-                      <label className="block text-xs font-medium text-gray-600">Vertical position <input aria-label="Set vertical shared story crop position" type="range" min="0" max="100" value={storySharePosition.y} onChange={(event) => setStorySharePosition((current) => ({ ...current, y: Number(event.target.value) }))} className="mt-1 w-full accent-purple-700" /></label>
-                    </div>}
-                  </div>
+                  {!storyShareDraft.isVideo && <p className="text-center text-xs text-gray-500">Tap Crop, then drag the image to frame it.</p>}
 
                   <div>
                     <p className="mb-2 text-sm font-semibold">Theme</p>
