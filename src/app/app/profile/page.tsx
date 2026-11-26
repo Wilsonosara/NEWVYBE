@@ -358,6 +358,7 @@ function ProfilePageContent() {
   const [likedPostIds, setLikedPostIds] = useState<number[]>([]);
   const [followingCount, setFollowingCount] = useState(0);
   const [followersCount, setFollowersCount] = useState(0);
+  const [memberSince, setMemberSince] = useState("");
   const [followListType, setFollowListType] = useState<"followers" | "following" | null>(null);
   const [followListUsers, setFollowListUsers] = useState<FollowListUser[]>([]);
   const [followListLoading, setFollowListLoading] = useState(false);
@@ -585,6 +586,9 @@ function ProfilePageContent() {
         }
 
         setCurrentUserId(user.id);
+        if (user.created_at) {
+          setMemberSince(new Date(user.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" }));
+        }
 
         const { data: loadedProfile, error: profileLoadError } = await supabase
           .from("profiles")
@@ -1654,188 +1658,64 @@ function ProfilePageContent() {
       </section>
 
       {isOwnProfile && editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/30 p-4">
-          <section className="my-auto w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-xl sm:p-6">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold tracking-tight text-gray-900">
-                  Edit profile
-                </h2>
-                <p className="mt-1 text-xs leading-5 text-gray-500">
-                  Update how people see you on VYBE.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditing(false);
-                  setSelectedAvatarFile(null);
-                  setProfileError("");
-                  if (avatarInputRef.current) {
-                    avatarInputRef.current.value = "";
-                  }
-                }}
-                disabled={savingProfile}
-                aria-label="Close edit profile"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-50 text-gray-600 transition hover:bg-gray-100 disabled:opacity-50"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  className="h-4 w-4"
-                  aria-hidden="true"
-                >
-                  <path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" />
-                </svg>
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-white sm:bg-black/35 sm:p-4">
+          <section className="flex h-full w-full max-w-2xl flex-col bg-white sm:max-h-[94dvh] sm:rounded-3xl sm:shadow-2xl">
+            <header className="flex shrink-0 items-center gap-3 px-4 pb-3 pt-5 sm:px-6">
+              <button type="button" onClick={() => { setEditing(false); setSelectedAvatarFile(null); setProfileError(""); if (avatarInputRef.current) avatarInputRef.current.value = ""; }} disabled={savingProfile} aria-label="Back" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#e5e7ef] text-[#111a2e] hover:bg-gray-50 disabled:opacity-50">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </button>
-            </div>
+              <div className="min-w-0 flex-1"><h2 className="text-2xl font-extrabold tracking-tight text-[#111a2e]">Edit Profile</h2><p className="text-sm text-[#69758c]">Update your profile details</p></div>
+              <button type="button" onClick={() => { setEditing(false); setSelectedAvatarFile(null); setProfileError(""); if (avatarInputRef.current) avatarInputRef.current.value = ""; }} disabled={savingProfile} aria-label="Close edit profile" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#e5e7ef] text-[#111a2e] hover:bg-gray-50 disabled:opacity-50">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" /></svg>
+              </button>
+            </header>
 
-            {profileError && (
-              <p
-                role="alert"
-                className="mb-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700"
-              >
-                {profileError}
-              </p>
-            )}
+            <form onSubmit={saveProfile} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6 pt-3 sm:px-6">
+                {profileError && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">{profileError}</p>}
 
-            <form onSubmit={saveProfile} className="space-y-4">
-              <div>
-                <label className="mb-2 block text-xs font-semibold text-gray-700">
-                  Profile picture
-                </label>
-
-                <div className="flex items-center gap-4">
-                  <Avatar
-                    src={avatarPreview || avatarUrl}
-                    name={draftName || name}
-                    className="h-20 w-20 shrink-0 rounded-full border border-gray-200"
-                  />
-
-                  <div className="min-w-0 flex-1">
-                    <input
-                      ref={avatarInputRef}
-                      id="profile-avatar"
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      onChange={handleAvatarSelection}
-                      disabled={savingProfile}
-                      className="block w-full text-xs text-gray-600 file:mr-3 file:rounded-full file:border file:border-gray-200 file:bg-[#f3f3f1] file:px-3 file:py-2 file:text-xs file:font-semibold file:text-gray-800 hover:file:bg-[#eaeae7] disabled:opacity-50"
-                    />
-                    <p className="mt-2 text-xs leading-5 text-gray-400">
-                      JPG, PNG, WEBP, or GIF. Maximum size: 5 MB.
-                    </p>
-                    {selectedAvatarFile && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedAvatarFile(null);
-                          if (avatarInputRef.current) {
-                            avatarInputRef.current.value = "";
-                          }
-                        }}
-                        disabled={savingProfile}
-                        className="mt-2 text-xs font-semibold text-gray-600 underline underline-offset-2 hover:text-gray-900"
-                      >
-                        Remove selected image
-                      </button>
-                    )}
+                <div className="flex flex-col items-center pb-1 pt-2">
+                  <div className="relative rounded-full bg-[#f5f5fb] p-3">
+                    <Avatar src={avatarPreview || avatarUrl} name={draftName || name} className="h-48 w-48 rounded-full border-[5px] border-white shadow-[0_8px_28px_rgba(57,64,119,0.2)]" />
+                    <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={savingProfile} aria-label="Change profile photo" className="absolute bottom-3 right-2 flex h-12 w-12 items-center justify-center rounded-full bg-white text-[#111a2e] shadow-lg ring-1 ring-gray-100 disabled:opacity-50">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z" strokeLinejoin="round"/><circle cx="12" cy="13" r="3.2"/></svg>
+                    </button>
                   </div>
+                  <input ref={avatarInputRef} id="profile-avatar" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleAvatarSelection} disabled={savingProfile} className="hidden" />
+                  <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={savingProfile} className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#e5e7ef] bg-[#f7f8fb] px-6 py-3 text-base font-bold text-[#111a2e] transition hover:bg-[#eff1f7] disabled:opacity-50">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z" strokeLinejoin="round"/><circle cx="12" cy="13" r="3.2"/></svg>Change Photo
+                  </button>
+                  {selectedAvatarFile && <button type="button" onClick={() => { setSelectedAvatarFile(null); if (avatarInputRef.current) avatarInputRef.current.value = ""; }} disabled={savingProfile} className="mt-1 text-xs font-semibold text-gray-500 underline">Remove selected image</button>}
+                </div>
+
+                <label htmlFor="profile-name" className="flex items-center gap-4 rounded-3xl border border-[#e1e5ef] p-3.5">
+                  <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#f1f2f7] text-[#111a2e]"><svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c.6-3.7 3.3-5.5 7.5-5.5s6.9 1.8 7.5 5.5" strokeLinecap="round"/></svg></span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm text-[#69758c]">Display Name</span><input id="profile-name" type="text" value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={60} required disabled={savingProfile} className="w-full bg-transparent text-lg font-semibold text-[#111a2e] outline-none disabled:opacity-60" placeholder="Your name" /></span>
+                </label>
+
+                <label htmlFor="profile-username" className="flex items-center gap-4 rounded-3xl border border-[#e1e5ef] p-3.5">
+                  <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#f1f2f7] text-3xl font-bold text-[#111a2e]">@</span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm text-[#69758c]">Username</span><input id="profile-username" type="text" value={draftUsername} onChange={(event) => setDraftUsername(event.target.value)} maxLength={30} required disabled={savingProfile} className="w-full bg-transparent text-lg font-semibold text-[#111a2e] outline-none disabled:opacity-60" placeholder="@username" /></span>
+                </label>
+                <p className="-mt-3 pl-20 text-xs text-gray-400">Use letters, numbers, dots, underscores, or hyphens.</p>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                    <label htmlFor="profile-bio" className="flex items-center gap-3 text-sm font-semibold text-[#111a2e]"><span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f1f2f7]"><svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m4 16.5-.8 4.3 4.3-.8L19.7 7.8a2.1 2.1 0 0 0-3-3L4 16.5Z" strokeLinejoin="round"/><path d="m14.9 6.6 3 3"/></svg></span>Bio</label>
+                    <span className="text-sm text-[#69758c]">{draftBio.length}/200</span>
+                  </div>
+                  <textarea id="profile-bio" value={draftBio} onChange={(event) => setDraftBio(event.target.value)} maxLength={200} rows={4} disabled={savingProfile} className="min-h-32 w-full resize-y rounded-3xl border border-[#e1e5ef] bg-white px-5 py-4 text-base leading-7 text-[#111a2e] outline-none focus:border-[#9b83db] disabled:bg-gray-50" placeholder="Tell people a little about yourself." />
+                  <p className="mt-2 px-1 text-sm text-[#69758c]">Tell people a little about yourself.</p>
+                </div>
+
+                <div className="border-t border-[#e5e7ef] pt-5">
+                  <h3 className="mb-3 flex items-center gap-3 text-base font-bold text-[#111a2e]"><svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 3 20 6v5c0 5-3.3 8.2-8 10-4.7-1.8-8-5-8-10V6l8-3Z" strokeLinejoin="round"/><path d="m8.5 12 2.2 2.2 4.8-5" strokeLinecap="round" strokeLinejoin="round"/></svg>Account Info</h3>
+                  <div className="flex items-center gap-3 rounded-2xl bg-[#f4f5f8] px-4 py-3 text-sm text-[#69758c]"><svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="4" y="6" width="16" height="15" rx="2"/><path d="M8 3v6m8-6v6M4 11h16" strokeLinecap="round"/></svg><span>Member since</span><span className="ml-auto font-medium text-[#111a2e]">{memberSince || "—"}</span></div>
                 </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="profile-name"
-                  className="mb-1.5 block text-xs font-semibold text-gray-700"
-                >
-                  Display name
-                </label>
-                <input
-                  id="profile-name"
-                  type="text"
-                  value={draftName}
-                  onChange={(event) => setDraftName(event.target.value)}
-                  maxLength={60}
-                  required
-                  disabled={savingProfile}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-100 disabled:bg-gray-50"
-                  placeholder="Your name"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="profile-username"
-                  className="mb-1.5 block text-xs font-semibold text-gray-700"
-                >
-                  Username
-                </label>
-                <input
-                  id="profile-username"
-                  type="text"
-                  value={draftUsername}
-                  onChange={(event) => setDraftUsername(event.target.value)}
-                  maxLength={30}
-                  required
-                  disabled={savingProfile}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-100 disabled:bg-gray-50"
-                  placeholder="@username"
-                />
-                <p className="mt-1.5 text-xs text-gray-400">
-                  Use letters, numbers, dots, underscores, or hyphens.
-                </p>
-              </div>
-
-              <div>
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <label
-                    htmlFor="profile-bio"
-                    className="block text-xs font-semibold text-gray-700"
-                  >
-                    Bio
-                  </label>
-                  <span className="text-xs text-gray-400">
-                    {draftBio.length}/200
-                  </span>
-                </div>
-                <textarea
-                  id="profile-bio"
-                  value={draftBio}
-                  onChange={(event) => setDraftBio(event.target.value)}
-                  maxLength={200}
-                  rows={4}
-                  disabled={savingProfile}
-                  className="w-full resize-y rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm leading-6 text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-100 disabled:bg-gray-50"
-                  placeholder="Tell your community a little about yourself..."
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditing(false);
-                    setSelectedAvatarFile(null);
-                    setProfileError("");
-                    if (avatarInputRef.current) {
-                      avatarInputRef.current.value = "";
-                    }
-                  }}
-                  disabled={savingProfile}
-                  className="rounded-xl border border-gray-200 bg-[#f3f3f1] px-4 py-3 text-sm font-semibold text-gray-800 transition hover:bg-[#eaeae7] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingProfile}
-                  className="rounded-xl border border-gray-200 bg-[#f3f3f1] px-4 py-3 text-sm font-semibold text-gray-800 transition hover:bg-[#eaeae7] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {savingProfile ? "Saving..." : "Save changes"}
-                </button>
+              <div className="shrink-0 border-t border-gray-100 bg-white p-4 sm:px-6">
+                <button type="submit" disabled={savingProfile} className="w-full rounded-2xl bg-[#111a2e] px-4 py-3.5 text-sm font-bold text-white transition hover:bg-[#202c48] disabled:cursor-not-allowed disabled:opacity-60">{savingProfile ? "Saving..." : "Save changes"}</button>
               </div>
             </form>
           </section>
